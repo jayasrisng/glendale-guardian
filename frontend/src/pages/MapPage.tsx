@@ -300,7 +300,7 @@ function MapPage() {
         */
 
         const response = await fetch(
-          `http://127.0.0.1:8000/hazards?lat=${lat}&lon=${lon}`
+          `/api/hazards?lat=${lat}&lon=${lon}`
         );
 
         if (!response.ok) {
@@ -354,7 +354,7 @@ function MapPage() {
           try {
             const geometryResponse =
               await fetch(
-                `http://127.0.0.1:8000/feature-geometry?layer_url=${encodeURIComponent(
+                `/api/feature-geometry?layer_url=${encodeURIComponent(
                   featureRef.layer_url
                 )}&object_id=${featureRef.object_id}`
               );

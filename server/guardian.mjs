@@ -26,6 +26,37 @@ function parseMcpEventStream(text) {
   return JSON.parse(dataLine.slice(5).trim());
 }
 
+async function callHazardsAtLocation(location) {
+  const response = await fetch(requireEnv("GLENDALE_GIS_MCP_URL"), {
+    method: "POST",
+    headers: {
+      ...JSON_HEADERS,
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${requireEnv("GLENDALE_GIS_MCP_SECRET")}`,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: crypto.randomUUID(),
+      method: "tools/call",
+      params: {
+        name: "hazards_at_location",
+        arguments: { location },
+      },
+    }),
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(`GIS MCP returned HTTP ${response.status}`);
+  const event = parseMcpEventStream(text);
+  if (event.error) throw new Error(event.error.message ?? "GIS MCP request failed");
+  if (event.result?.isError) {
+    throw new Error(event.result.content?.[0]?.text ?? "GIS lookup failed");
+  }
+  const structured = event.result?.structuredContent;
+  if (!structured) throw new Error("GIS MCP did not return structured hazard data");
+  return structured;
+}
+
 function sourceFor(item) {
   return item?._meta
     ? {
@@ -144,32 +175,43 @@ export async function getMappedHazards(address) {
     throw new Error("A valid Glendale property address is required");
   }
 
-  const response = await fetch(requireEnv("GLENDALE_GIS_MCP_URL"), {
-    method: "POST",
-    headers: {
-      ...JSON_HEADERS,
-      accept: "application/json, text/event-stream",
-      authorization: `Bearer ${requireEnv("GLENDALE_GIS_MCP_SECRET")}`,
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: crypto.randomUUID(),
-      method: "tools/call",
-      params: {
-        name: "hazards_at_location",
-        arguments: { location: { address: address.trim() } },
-      },
-    }),
-  });
+  return normalizeHazards(await callHazardsAtLocation({ address: address.trim() }));
+}
 
-  const text = await response.text();
-  if (!response.ok) throw new Error(`GIS MCP returned HTTP ${response.status}`);
-  const event = parseMcpEventStream(text);
-  if (event.error) throw new Error(event.error.message ?? "GIS MCP request failed");
-  if (event.result?.isError) {
-    throw new Error(event.result.content?.[0]?.text ?? "GIS lookup failed");
+export async function getMappedHazardsByCoordinates(lat, lon) {
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+    throw new Error("A valid latitude is required");
   }
-  const structured = event.result?.structuredContent;
-  if (!structured) throw new Error("GIS MCP did not return structured hazard data");
-  return normalizeHazards(structured);
+  if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+    throw new Error("A valid longitude is required");
+  }
+  return callHazardsAtLocation({ lat, lon });
+}
+
+const GIS_HOSTS = new Set([
+  "hazards.fema.gov",
+  "services.arcgis.com",
+  "services1.arcgis.com",
+  "services2.arcgis.com",
+]);
+
+export async function getFeatureGeometry(layerUrl, objectId) {
+  const parsedUrl = new URL(layerUrl);
+  if (parsedUrl.protocol !== "https:" || !GIS_HOSTS.has(parsedUrl.hostname)) {
+    throw new Error("Unsupported GIS layer host");
+  }
+  if (!Number.isInteger(objectId) || objectId < 0) {
+    throw new Error("A valid GIS object ID is required");
+  }
+
+  parsedUrl.pathname = `${parsedUrl.pathname.replace(/\/$/, "")}/query`;
+  parsedUrl.search = new URLSearchParams({
+    where: `OBJECTID=${objectId}`,
+    outFields: "*",
+    returnGeometry: "true",
+    f: "geojson",
+  }).toString();
+
+  const response = await fetch(parsedUrl);
+  return readJson(response, "GIS feature service");
 }
