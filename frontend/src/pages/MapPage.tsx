@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-
 import {
+  CircleMarker,
   GeoJSON,
   MapContainer,
   Marker,
+  Pane,
   Popup,
   TileLayer,
   useMap,
@@ -12,11 +13,21 @@ import {
 import BottomNav from "../components/BottomNav";
 import { getHazardStyle } from "../styles/hazardStyles";
 
-type Season =
-  | "spring"
-  | "summer"
-  | "fall"
-  | "winter";
+type ResourceMarker = {
+  kind: string;
+  name: string;
+  address: string | null;
+  distance: number;
+  position: [number, number];
+};
+
+type Advice = {
+  summary: string;
+  tips: string[];
+  note: string;
+};
+
+type Season = "spring" | "summer" | "fall" | "winter";
 
 type HazardLayer = {
   type: string;
@@ -89,61 +100,43 @@ const seasonalHazards: Record<
   ],
 };
 
+const resourceKinds = ["fire_stations", "police_stations", "hospitals"];
+
+const resourceLabels: Record<string, string> = {
+  fire_stations: "Fire",
+  police_stations: "Police",
+  hospitals: "Hospitals",
+};
+
+const resourceColors: Record<string, string> = {
+  fire_stations: "#dc2626",
+  police_stations: "#2563eb",
+  hospitals: "#16a34a",
+};
+
 function getCurrentSeason(): Season {
   const month = new Date().getMonth() + 1;
 
-  if (month >= 3 && month <= 5) {
-    return "spring";
-  }
-
-  if (month >= 6 && month <= 8) {
-    return "summer";
-  }
-
-  if (month >= 9 && month <= 11) {
-    return "fall";
-  }
-
+  if (month >= 3 && month <= 5) return "spring";
+  if (month >= 6 && month <= 8) return "summer";
+  if (month >= 9 && month <= 11) return "fall";
   return "winter";
 }
 
-/*
-  Calculates how far away a hazard is.
-
-  If the user is already inside the hazard,
-  its distance is treated as zero.
-*/
-function getHazardDistance(
-  hazard: any
-): number {
-  if (
-    hazard.status === "in_zone" &&
-    hazard.matches?.length > 0
-  ) {
+function getHazardDistance(hazard: any): number {
+  if (hazard.status === "in_zone" && hazard.matches?.length > 0) {
     return 0;
   }
 
-  if (
-    hazard.nearest?.distance_m != null
-  ) {
+  if (hazard.nearest?.distance_m != null) {
     return hazard.nearest.distance_m;
   }
 
-  /*
-    Some datasets such as wildfire return
-    nearest_by_class instead of nearest.
-  */
   if (hazard.nearest_by_class) {
-    const distances = Object.values(
-      hazard.nearest_by_class
-    )
-      .map(
-        (item: any) =>
-          item?.distance_m
-      )
+    const distances = Object.values(hazard.nearest_by_class)
+      .map((item: any) => item?.distance_m)
       .filter(
-        (distance): distance is number =>
-          typeof distance === "number"
+        (distance): distance is number => typeof distance === "number"
       );
 
     if (distances.length > 0) {
@@ -154,50 +147,23 @@ function getHazardDistance(
   return Infinity;
 }
 
-/*
-  Gets the actual GIS feature reference
-  that we can use to retrieve the polygon.
-*/
-function getHazardFeatureRef(
-  hazard: any
-) {
-  /*
-    User is already inside the hazard.
-  */
-  if (
-    hazard.status === "in_zone" &&
-    hazard.matches?.length > 0
-  ) {
+function getHazardFeatureRef(hazard: any) {
+  if (hazard.status === "in_zone" && hazard.matches?.length > 0) {
     return hazard.matches[0].ref;
   }
 
-  /*
-    Standard nearest feature.
-  */
   if (hazard.nearest?.ref) {
     return hazard.nearest.ref;
   }
 
-  /*
-    Wildfire / other classified datasets.
-  */
   if (hazard.nearest_by_class) {
-    const candidates = Object.values(
-      hazard.nearest_by_class
-    ) as any[];
+    const candidates = Object.values(hazard.nearest_by_class) as any[];
 
     const closest = candidates
       .filter(
-        (item) =>
-          item?.ref &&
-          typeof item?.distance_m ===
-            "number"
+        (item) => item?.ref && typeof item?.distance_m === "number"
       )
-      .sort(
-        (a, b) =>
-          a.distance_m -
-          b.distance_m
-      )[0];
+      .sort((a, b) => a.distance_m - b.distance_m)[0];
 
     return closest?.ref ?? null;
   }
@@ -228,17 +194,7 @@ function MapPage() {
   const [advice, setAdvice] = useState<any>(null);
   const [loadingAdvice] = useState(false);
 
-  /*
-    Start everything off.
-
-    Once GIS data loads, the closest
-    seasonal hazard will automatically
-    be enabled.
-  */
-  const [
-    visibleHazards,
-    setVisibleHazards,
-  ] = useState<Record<string, boolean>>({
+  const [visibleHazards, setVisibleHazards] = useState<Record<string, boolean>>({
     wildfire: false,
     flood: false,
     fault: false,
@@ -248,11 +204,13 @@ function MapPage() {
     debris_flow: false,
   });
 
-  /*
-    --------------------------------
-    GET USER LOCATION
-    --------------------------------
-  */
+  const [visibleResources, setVisibleResources] = useState<
+    Record<string, boolean>
+  >({
+    fire_stations: true,
+    police_stations: true,
+    hospitals: true,
+  });
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -277,88 +235,98 @@ function MapPage() {
     );
   }, []);
 
-  /*
-    --------------------------------
-    FETCH GIS DATA ONCE
-    --------------------------------
-
-    IMPORTANT:
-
-    This only depends on location.
-
-    Changing seasons does NOT refetch
-    the GIS data.
-  */
-
   useEffect(() => {
-    if (!location) {
-      return;
-    }
+    if (!location) return;
 
     const [lat, lon] = location;
-
     let cancelled = false;
 
-    async function loadHazards() {
-      try {
-        setLoadingHazards(true);
+    setResourceMarkers([]);
 
-        /*
-          First get the GIS hazard
-          information for this location.
-        */
+    async function loadResources() {
+      try {
+        setLoadingResources(true);
 
         const response = await fetch(
           `/api/hazards?lat=${lat}&lon=${lon}`
         );
 
         if (!response.ok) {
-          throw new Error(
-            "Unable to load hazard data."
-          );
+          throw new Error("Unable to load resources.");
         }
 
-        const data =
-          await response.json();
+        const data = await response.json();
 
-        console.log(
-          "Hazard data:",
-          data
-        );
+        const requests = (data.groups ?? [])
+          .filter((group: any) => resourceKinds.includes(group.kind))
+          .flatMap((group: any) =>
+            (group.results ?? []).map(async (resource: any) => {
+              const ref = resource.ref;
+              if (!ref) return;
 
-        const layers: HazardLayer[] =
-          [];
+              try {
+                const geometryResponse = await fetch(
+                  `http://127.0.0.1:8000/feature-geometry?layer_url=${encodeURIComponent(
+                    ref.layer_url
+                  )}&object_id=${ref.object_id}`
+                );
 
-        /*
-          Load each geometry once.
+                if (!geometryResponse.ok) return;
 
-          Each individual hazard is
-          protected with its own try/catch
-          so one broken GIS layer does not
-          crash the whole map.
-        */
+                const geometry = await geometryResponse.json();
+                const feature = geometry.features?.[0];
 
-        for (
-          const type of hazardTypes
-        ) {
-          const hazard = data[type];
+                if (!feature || feature.geometry?.type !== "Point") return;
 
-          if (!hazard) {
-            continue;
-          }
+                const [longitude, latitude] = feature.geometry.coordinates;
+                const marker: ResourceMarker = {
+                  kind: group.kind,
+                  name: resource.name ?? group.title,
+                  address: resource.address ?? null,
+                  distance: resource.distance_m,
+                  position: [latitude, longitude],
+                };
 
-          const featureRef =
-            getHazardFeatureRef(
-              hazard
-            );
+                if (!cancelled) {
+                  setResourceMarkers((previous) => {
+                    const duplicate = previous.some(
+                      (item) =>
+                        item.kind === marker.kind &&
+                        item.name === marker.name &&
+                        item.position[0] === marker.position[0] &&
+                        item.position[1] === marker.position[1]
+                    );
+                    return duplicate ? previous : [...previous, marker];
+                  });
+                }
+              } catch (resourceError) {
+                console.error("Resource geometry error:", resourceError);
+              }
+            })
+          );
 
-          if (!featureRef) {
-            console.log(
-              `No feature found for ${type}`
-            );
+        await Promise.allSettled(requests);
+      } catch (resourceError) {
+        console.error("Resource loading error:", resourceError);
+      } finally {
+        if (!cancelled) {
+          setLoadingResources(false);
+        }
+      }
+    }
 
-            continue;
-          }
+    loadResources();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location]);
+
+  useEffect(() => {
+    if (!location) return;
+
+    const [lat, lon] = location;
+    let cancelled = false;
 
           try {
             const geometryResponse =
@@ -368,80 +336,77 @@ function MapPage() {
                 )}&object_id=${featureRef.object_id}`
               );
 
-            if (
-              !geometryResponse.ok
-            ) {
-              console.error(
-                `Geometry request failed for ${type}`
-              );
+        const response = await fetch(
+          `http://127.0.0.1:8000/hazards?lat=${lat}&lon=${lon}`
+        );
 
-              continue;
-            }
+        if (!response.ok) {
+          throw new Error("Unable to load hazard data.");
+        }
 
-            const geometry =
-              await geometryResponse.json();
+        const data = await response.json();
 
-            /*
-              Don't render an empty or invalid
-              FeatureCollection.
-            */
-            if (
-              !geometry?.features ||
-              geometry.features.length === 0
-            ) {
-              console.log(
-                `No geometry returned for ${type}`
-              );
+        async function loadOneHazard(type: string) {
+          const hazard = data[type];
+          if (!hazard) return;
 
-              continue;
-            }
+          const featureRef = getHazardFeatureRef(hazard);
+          if (!featureRef) return;
 
-            layers.push({
-              type,
-
-              title:
-                hazard.title ??
-                hazardLabels[type],
-
-              status:
-                hazard.status ??
-                "unknown",
-
-              distance:
-                getHazardDistance(
-                  hazard
-                ),
-
-              geometry,
-            });
-          } catch (geometryError) {
-            console.error(
-              `Failed to load ${type}:`,
-              geometryError
+          try {
+            const geometryResponse = await fetch(
+              `http://127.0.0.1:8000/feature-geometry?layer_url=${encodeURIComponent(
+                featureRef.layer_url
+              )}&object_id=${featureRef.object_id}`
             );
+
+            if (!geometryResponse.ok) return;
+
+            const geometry = await geometryResponse.json();
+            if (!geometry?.features?.length) return;
+
+            const layer: HazardLayer = {
+              type,
+              title: hazard.title ?? hazardLabels[type],
+              status: hazard.status ?? "unknown",
+              distance: getHazardDistance(hazard),
+              geometry,
+            };
+
+            if (!cancelled) {
+              setHazardLayers((previous) => {
+                const withoutOld = previous.filter((item) => item.type !== type);
+                return [...withoutOld, layer];
+              });
+            }
+          } catch (geometryError) {
+            console.error(`Failed to load ${type}:`, geometryError);
           }
         }
 
-        if (!cancelled) {
-          console.log(
-            "Loaded hazard layers:",
-            layers
-          );
+        const seasonCandidates = seasonalHazards[season]
+          .map((type) => ({
+            type,
+            hazard: data[type],
+            distance: data[type] ? getHazardDistance(data[type]) : Infinity,
+          }))
+          .filter((item) => item.hazard && Number.isFinite(item.distance))
+          .sort((a, b) => a.distance - b.distance);
 
-          setHazardLayers(
-            layers
-          );
+        const firstType = seasonCandidates[0]?.type ?? null;
+
+        // Make one useful layer visible first instead of waiting on every GIS request.
+        if (firstType) {
+          await loadOneHazard(firstType);
         }
+
+        const remainingTypes = hazardTypes.filter((type) => type !== firstType);
+        await Promise.allSettled(remainingTypes.map(loadOneHazard));
       } catch (loadError) {
-        console.error(
-          "Hazard loading error:",
-          loadError
-        );
+        console.error("Hazard loading error:", loadError);
       } finally {
         if (!cancelled) {
-          setLoadingHazards(
-            false
-          );
+          setLoadingHazards(false);
         }
       }
     }
@@ -451,88 +416,33 @@ function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, [location]);
+  }, [location, season]);
 
-  /*
-    --------------------------------
-    CALCULATE PRIMARY SEASONAL HAZARD
-    --------------------------------
+  const primaryHazard = useMemo(() => {
+    const relevantTypes = seasonalHazards[season];
 
-    No API call happens here.
+    const candidates = hazardLayers
+      .filter((hazard) => relevantTypes.includes(hazard.type))
+      .filter((hazard) => Number.isFinite(hazard.distance))
+      .sort((a, b) => a.distance - b.distance);
 
-    We are using the GIS data we
-    already downloaded.
-  */
-
-  const primaryHazard =
-    useMemo(() => {
-      const relevantTypes =
-        seasonalHazards[season];
-
-      const candidates =
-        hazardLayers
-          .filter((hazard) =>
-            relevantTypes.includes(
-              hazard.type
-            )
-          )
-          .filter((hazard) =>
-            Number.isFinite(
-              hazard.distance
-            )
-          )
-          .sort(
-            (a, b) =>
-              a.distance -
-              b.distance
-          );
-
-      return (
-        candidates[0] ?? null
-      );
-    }, [
-      hazardLayers,
-      season,
-    ]);
-
-  /*
-    Automatically turn on the closest
-    seasonal hazard whenever the season
-    changes.
-  */
+    return candidates[0] ?? null;
+  }, [hazardLayers, season]);
 
   useEffect(() => {
-    if (!primaryHazard) {
-      return;
-    }
+    if (!primaryHazard) return;
 
-    setVisibleHazards(
-      (previous) => ({
-        ...previous,
-
-        [primaryHazard.type]:
-          true,
-      })
-    );
+    setVisibleHazards((previous) => ({
+      ...previous,
+      [primaryHazard.type]: true,
+    }));
   }, [primaryHazard]);
 
-  /*
-    --------------------------------
-    TOGGLE HAZARD
-    --------------------------------
-  */
-
-  function toggleHazard(
-    type: string
-  ) {
-    setVisibleHazards(
-      (previous) => ({
-        ...previous,
-
-        [type]:
-          !previous[type],
-      })
-    );
+  function toggleHazard(type: string) {
+    setVisibleHazards((previous) => ({
+      ...previous,
+      [type]: !previous[type],
+    }));
   }
 
   return (
@@ -588,206 +498,72 @@ function MapPage() {
           Seasonal Hazard View
         </label>
 
-      <select
-  id="season"
-  value={season}
-  onChange={(event) =>
-    setSeason(event.target.value as Season)
-  }
-  style={{
-    width: "100%",
-    padding: "12px",
-    borderRadius: "10px",
-    border: "1px solid #cbd5e1",
-    background: "white",
-    color: "#0f172a",
-    fontSize: "16px",
-  }}
->
-  <option value="spring">Spring</option>
-  <option value="summer">Summer</option>
-  <option value="fall">Fall</option>
-  <option value="winter">Winter</option>
-</select>
-
-        {/* PRIMARY HAZARD */}
+        <select
+          id="season"
+          value={season}
+          onChange={(event) => setSeason(event.target.value as Season)}
+          className="season-select"
+        >
+          <option value="spring">Spring</option>
+          <option value="summer">Summer</option>
+          <option value="fall">Fall</option>
+          <option value="winter">Winter</option>
+        </select>
 
         {primaryHazard && (
-          <div
-            style={{
-              marginTop:
-                "12px",
-              padding: "12px",
-              borderRadius:
-                "10px",
-              background:
-                "white",
-              border:
-                "1px solid #e2e8f0",
-            }}
-          >
-            <div
-              style={{
-                fontSize:
-                  "12px",
-                color:
-                  "#64748b",
-              }}
-            >
-              Closest seasonal
-              hazard
+          <div className="primary-hazard-card">
+            <div>
+              <p className="primary-hazard-label">Closest seasonal hazard</p>
+              <strong>{hazardLabels[primaryHazard.type]}</strong>
             </div>
 
-            <strong>
-              {
-                hazardLabels[
-                  primaryHazard
-                    .type
-                ]
-              }
-            </strong>
-
-            {primaryHazard.distance ===
-            0 ? (
-              <div
-                style={{
-                  fontSize:
-                    "13px",
-                  marginTop:
-                    "4px",
-                }}
-              >
-                Your location
-                overlaps this
-                mapped hazard.
-              </div>
-            ) : (
-              <div
-                style={{
-                  fontSize:
-                    "13px",
-                  marginTop:
-                    "4px",
-                  color:
-                    "#475569",
-                }}
-              >
-                About{" "}
-                {Math.round(
-                  primaryHazard.distance
-                )}{" "}
-                meters away
-              </div>
-            )}
+            <span
+              className={`status-badge ${
+                primaryHazard.distance === 0 ? "status-in-zone" : "status-nearby"
+              }`}
+            >
+              {primaryHazard.distance === 0
+                ? "In mapped area"
+                : `${Math.round(primaryHazard.distance)} m away`}
+            </span>
           </div>
         )}
 
-        {loadingHazards && (
-          <p
-            style={{
-              fontSize: "13px",
-              color:
-                "#64748b",
-            }}
-          >
-            Loading GIS hazard
-            layers...
-          </p>
-        )}
+        <div className="layer-section">
+          <div className="section-heading-row">
+            <span className="section-heading">Hazard layers</span>
+            <span className="section-helper">Tap a shape for AI advice</span>
+          </div>
 
-        {/* HAZARD TOGGLES */}
-
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            overflowX:
-              "auto",
-            paddingTop:
-              "14px",
-            paddingBottom:
-              "4px",
-          }}
-        >
-          {hazardTypes.map(
-            (type) => {
-              const styles =
-                getHazardStyle(
-                  type
-                );
-
-              const active =
-                visibleHazards[
-                  type
-                ];
-
-              const loaded =
-                hazardLayers.some(
-                  (hazard) =>
-                    hazard.type ===
-                    type
-                );
+          <div className="chip-row">
+            {hazardTypes.map((type) => {
+              const styles = getHazardStyle(type);
+              const active = visibleHazards[type];
+              const loaded = hazardLayers.some((hazard) => hazard.type === type);
 
               return (
                 <button
                   key={type}
                   type="button"
-                  disabled={
-                    !loaded
+                  disabled={!loaded}
+                  onClick={() => toggleHazard(type)}
+                  className={`filter-chip ${active ? "filter-chip-active" : ""}`}
+                  style={
+                    active
+                      ? {
+                          background: styles.fillColor,
+                          borderColor: styles.color,
+                          color: "white",
+                        }
+                      : undefined
                   }
-                  onClick={() =>
-                    toggleHazard(
-                      type
-                    )
-                  }
-                  style={{
-                    flexShrink: 0,
-                    padding:
-                      "9px 13px",
-                    borderRadius:
-                      "999px",
-                    border: active
-                      ? `2px solid ${styles.color}`
-                      : "1px solid #cbd5e1",
-
-                    background:
-                      active
-                        ? styles.fillColor
-                        : "white",
-
-                    color: active
-                      ? "white"
-                      : "#334155",
-
-                    opacity:
-                      loaded
-                        ? 1
-                        : 0.4,
-
-                    cursor:
-                      loaded
-                        ? "pointer"
-                        : "not-allowed",
-
-                    fontWeight:
-                      active
-                        ? 600
-                        : 400,
-                  }}
                 >
-                  {active
-                    ? "✓ "
-                    : ""}
-
-                  {
-                    hazardLabels[
-                      type
-                    ]
-                  }
+                  {active ? "✓ " : ""}
+                  {hazardLabels[type]}
                 </button>
               );
-            }
-          )}
+            })}
+          </div>
         </div>
       </div>
 
@@ -837,116 +613,168 @@ function MapPage() {
               getHazardStyle(
                 hazard.type
               );
+            })}
+          </div>
+        </div>
+      </section>
 
-            const isPrimary =
-              hazard.type ===
-              primaryHazard?.type;
+      <section className="map-shell">
+        <div className="map-legend" aria-hidden="true">
+          <span><i style={{ background: resourceColors.fire_stations }} />Fire</span>
+          <span><i style={{ background: resourceColors.police_stations }} />Police</span>
+          <span><i style={{ background: resourceColors.hospitals }} />Hospital</span>
+        </div>
 
-            return (
-              <GeoJSON
-                /*
-                  Including season in the key
-                  guarantees Leaflet refreshes
-                  the visual style when the
-                  season changes.
-                */
-                key={`${hazard.type}-${season}`}
-                data={
-                  hazard.geometry
-                }
-                style={{
-                  color:
-                    styles.color,
+        <MapContainer center={location} zoom={11} className="guardian-map">
+          <TileLayer
+            attribution="&copy; OpenStreetMap contributors"
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
 
-                  fillColor:
-                    styles.fillColor,
+          <Marker position={location}>
+            <Popup>You are here</Popup>
+          </Marker>
 
-                  weight:
-                    isPrimary
-                      ? 4
-                      : 2,
+          <Pane name="hazardPane" style={{ zIndex: 400 }}>
+            {hazardLayers
+              .filter((hazard) => visibleHazards[hazard.type])
+              .map((hazard) => {
+                const styles = getHazardStyle(hazard.type);
+                const isPrimary = hazard.type === primaryHazard?.type;
 
-                  fillOpacity:
-                    isPrimary
-                      ? 0.45
-                      : 0.18,
-                }}
-                onEachFeature={(feature, layer) => {
-  layer.on("click", () => {
-    setSelectedHazard({
-      type: hazard.type,
-      title: hazard.title,
-      status: hazard.status,
-      distance: hazard.distance,
-      properties: feature.properties,
-    });
+                return (
+                  <GeoJSON
+                    key={`${hazard.type}-${season}`}
+                    data={hazard.geometry}
+                    pane="hazardPane"
+                    style={{
+                      color: styles.color,
+                      fillColor: styles.fillColor,
+                      weight: isPrimary ? 3 : 2,
+                      opacity: 0.9,
+                      fillOpacity: isPrimary ? 0.27 : 0.12,
+                    }}
+                    onEachFeature={(feature, layer) => {
+                      layer.on("click", () => {
+                        setSelectedHazard({
+                          type: hazard.type,
+                          title: hazard.title,
+                          status: hazard.status,
+                          distance: hazard.distance,
+                          properties: feature.properties,
+                        });
 
-    setAdvice(null);
-  });
-}}
-              />
-            );
-          })}
-      </MapContainer>
+                        generateAdvice(hazard, feature);
+                      });
+                    }}
+                  />
+                );
+              })}
+          </Pane>
+
+          <Pane name="resourcePane" style={{ zIndex: 650 }}>
+            {resourceMarkers
+              .filter((resource) => visibleResources[resource.kind])
+              .map((resource, index) => (
+                <CircleMarker
+                  key={`${resource.kind}-${resource.name}-${index}`}
+                  center={resource.position}
+                  pane="resourcePane"
+                  radius={10}
+                  bubblingMouseEvents={false}
+                  pathOptions={{
+                    color: "#ffffff",
+                    weight: 3,
+                    fillColor: resourceColors[resource.kind] ?? "#475569",
+                    fillOpacity: 1,
+                  }}
+                >
+                  <Popup>
+                    <div className="resource-popup">
+                      <span
+                        className="resource-popup-type"
+                        style={{ color: resourceColors[resource.kind] }}
+                      >
+                        {resourceLabels[resource.kind] ?? "Resource"}
+                      </span>
+                      <strong>{resource.name}</strong>
+                      {resource.address && <span>{resource.address}</span>}
+                      <span className="resource-popup-distance">
+                        About {Math.round(resource.distance)} meters away
+                      </span>
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              ))}
+          </Pane>
+        </MapContainer>
+      </section>
 
       {selectedHazard && (
-  <div
-    style={{
-      position: "absolute",
-      bottom: "72px",
-      left: "12px",
-      right: "12px",
-      background: "white",
-      padding: "18px",
-      borderRadius: "18px",
-      zIndex: 1000,
-      boxShadow: "0 8px 30px rgba(0,0,0,0.2)",
-    }}
-  >
-    <button
-      onClick={() => {
-        setSelectedHazard(null);
-        setAdvice(null);
-      }}
-      style={{
-        float: "right",
-        border: "none",
-        background: "transparent",
-        fontSize: "20px",
-      }}
-    >
-      ×
-    </button>
+        <div className="advice-backdrop" onClick={() => {
+          setSelectedHazard(null);
+          setAdvice(null);
+        }}>
+          <aside
+            className="advice-sheet"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="sheet-handle" />
 
-    <h2>{selectedHazard.title}</h2>
+            <button
+              type="button"
+              className="sheet-close"
+              aria-label="Close safety guidance"
+              onClick={() => {
+                setSelectedHazard(null);
+                setAdvice(null);
+              }}
+            >
+              ×
+            </button>
 
-    <p>
-      {selectedHazard.distance === 0
-        ? "Your location overlaps this mapped hazard area."
-        : `This mapped hazard is about ${Math.round(
-            selectedHazard.distance
-          )} meters away.`}
-    </p>
+            <div className="advice-title-row">
+              <div>
+                <p className="eyebrow">Mapped hazard</p>
+                <h2>{selectedHazard.title}</h2>
+              </div>
+              <span
+                className={`status-badge ${
+                  selectedHazard.distance === 0 ? "status-in-zone" : "status-nearby"
+                }`}
+              >
+                {selectedHazard.distance === 0
+                  ? "In mapped area"
+                  : `${Math.round(selectedHazard.distance)} m away`}
+              </span>
+            </div>
 
-    {loadingAdvice && (
-      <p>Generating safety advice...</p>
-    )}
+            {loadingAdvice && (
+              <div className="advice-loading">
+                <span className="loading-dot" />
+                Generating safety guidance…
+              </div>
+            )}
 
-    {advice && (
-      <>
-        <h3>Safety Advice</h3>
+            {advice && (
+              <div className="advice-content">
+                <h3>AI safety guidance</h3>
+                <p>{advice.summary}</p>
 
-        <p>{advice.summary}</p>
+                {advice.tips?.length > 0 && (
+                  <ul>
+                    {advice.tips.map((tip) => (
+                      <li key={tip}>{tip}</li>
+                    ))}
+                  </ul>
+                )}
 
-        <ul>
-          {advice.tips?.map((tip: string) => (
-            <li key={tip}>{tip}</li>
-          ))}
-        </ul>
-      </>
-    )}
-  </div>
-)}
+                {advice.note && <p className="advice-note">{advice.note}</p>}
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
 
       <BottomNav />
     </main>
