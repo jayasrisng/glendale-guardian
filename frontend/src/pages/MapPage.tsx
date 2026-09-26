@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useConversation } from "@elevenlabs/react";
 
 import {
   CircleMarker,
@@ -22,12 +23,6 @@ type ResourceMarker = {
   address: string | null;
   distance: number;
   position: [number, number];
-};
-
-type Advice = {
-  summary: string;
-  tips: string[];
-  note: string;
 };
 
 type HazardLayer = {
@@ -240,11 +235,19 @@ function MapPage() {
   const [selectedHazard, setSelectedHazard] =
     useState<any>(null);
 
-  const [advice, setAdvice] =
-    useState<Advice | null>(null);
+  const [agentText, setAgentText] =
+    useState<string>("");
 
-  const [loadingAdvice, setLoadingAdvice] =
+  const [sendingHazardContext, setSendingHazardContext] =
     useState(false);
+
+  const conversation = useConversation({
+    onMessage: ({ message, role }) => {
+      if (role === "agent") {
+        setAgentText(message);
+      }
+    },
+  });
 
   const [visibleHazards, setVisibleHazards] =
     useState<Record<string, boolean>>({
@@ -623,68 +626,65 @@ function MapPage() {
     );
   }
 
-  async function generateAdvice(
+  async function sendHazardToGuardian(
     hazard: HazardLayer,
     feature: any
   ) {
     try {
-      setLoadingAdvice(true);
-      setAdvice(null);
+      setSendingHazardContext(true);
+      setAgentText("");
 
-      const response = await fetch(
-        `${API_BASE}/ai/advice`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            hazard: hazard.type,
-            title: hazard.title,
-            status: hazard.status,
-            distance:
-              Number.isFinite(
-                hazard.distance
-              )
-                ? hazard.distance
-                : null,
-            season,
-            properties:
-              feature.properties ?? {},
-          }),
-        }
-      );
+      const context = [
+        `Selected mapped hazard: ${hazard.title}.`,
+        `Hazard type: ${hazard.type}.`,
+        `GIS status: ${hazard.status}.`,
+        Number.isFinite(hazard.distance)
+          ? hazard.distance === 0
+            ? "The selected location overlaps this mapped hazard."
+            : `The mapped hazard is approximately ${Math.round(hazard.distance)} meters away.`
+          : "Distance is unavailable.",
+        `Selected season: ${season}.`,
+        `GIS feature attributes: ${JSON.stringify(feature.properties ?? {})}.`,
+        "Use this only as mapped public-data context. Do not describe it as a real-time incident or forecast.",
+      ].join("\n");
 
-      if (!response.ok) {
+      if (conversation.status === "connected") {
+        conversation.sendContextualUpdate(context);
+        return;
+      }
+
+      const tokenResponse = await fetch("/api/conversation-token");
+      const tokenBody = await tokenResponse.json();
+
+      if (!tokenResponse.ok) {
         throw new Error(
-          "Unable to generate advice."
+          tokenBody.error ?? "Unable to obtain ElevenLabs conversation token."
         );
       }
 
-      const data =
-        await response.json();
-
-      setAdvice(data);
-    } catch (adviceError) {
-      console.error(
-        "Advice error:",
-        adviceError
-      );
-
-      setAdvice({
-        summary:
-          "Safety guidance is temporarily unavailable.",
-        tips: [
-          "Monitor official emergency information.",
-          "Keep emergency supplies available.",
-          "Know your local evacuation routes and resources.",
-        ],
-        note:
-          "Mapped hazard data is not a real-time emergency warning.",
+      await conversation.startSession({
+        conversationToken: tokenBody.token,
+        connectionType: "webrtc",
+        dynamicVariables: {
+          selected_hazard_type: hazard.type,
+          selected_hazard_title: hazard.title,
+          selected_hazard_status: hazard.status,
+          selected_hazard_distance_m: Number.isFinite(hazard.distance)
+            ? String(Math.round(hazard.distance))
+            : "unknown",
+          selected_season: season,
+          selected_hazard_properties: JSON.stringify(feature.properties ?? {}),
+        },
       });
+
+      conversation.sendContextualUpdate(context);
+    } catch (error) {
+      console.error("Guardian hazard context error:", error);
+      setAgentText(
+        "Guardian is temporarily unavailable. The mapped hazard information is still visible on the map."
+      );
     } finally {
-      setLoadingAdvice(false);
+      setSendingHazardContext(false);
     }
   }
 
@@ -1053,7 +1053,7 @@ function MapPage() {
                             }
                           );
 
-                          generateAdvice(
+                          sendHazardToGuardian(
                             hazard,
                             feature
                           );
@@ -1158,7 +1158,7 @@ function MapPage() {
             setSelectedHazard(
               null
             );
-            setAdvice(null);
+            setAgentText("");
           }}
         >
           <aside
@@ -1177,7 +1177,7 @@ function MapPage() {
                 setSelectedHazard(
                   null
                 );
-                setAdvice(null);
+                setAgentText("");
               }}
             >
               ×
@@ -1213,50 +1213,28 @@ function MapPage() {
               </span>
             </div>
 
-            {loadingAdvice && (
+            {sendingHazardContext && (
               <div className="advice-loading">
                 <span className="loading-dot" />
-                Generating safety
-                guidance…
+                Sending mapped context to Guardian…
               </div>
             )}
 
-            {advice && (
-              <div className="advice-content">
-                <h3>
-                  AI safety guidance
-                </h3>
+            <div className="advice-content">
+              <h3>Guardian guidance</h3>
 
-                <p>
-                  {
-                    advice.summary
-                  }
+              <p>
+                {conversation.status === "connected"
+                  ? "This mapped hazard has been shared with the ElevenLabs Guardian agent."
+                  : "Connecting this mapped hazard to the ElevenLabs Guardian agent."}
+              </p>
+
+              {agentText && (
+                <p className="advice-note">
+                  {agentText}
                 </p>
-
-                {advice.tips
-                  ?.length > 0 && (
-                  <ul>
-                    {advice.tips.map(
-                      (tip) => (
-                        <li
-                          key={tip}
-                        >
-                          {tip}
-                        </li>
-                      )
-                    )}
-                  </ul>
-                )}
-
-                {advice.note && (
-                  <p className="advice-note">
-                    {
-                      advice.note
-                    }
-                  </p>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </aside>
         </div>
       )}
