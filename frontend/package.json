@@ -19,8 +19,6 @@
     "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
-    "@oxlint/binding-darwin-arm64": "^1.85.0",
-    "@rolldown/binding-darwin-arm64": "^1.2.11",
     "@types/leaflet": "^1.9.22",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
@@ -29,5 +27,9 @@
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
+  },
+  "optionalDependencies": {
+    "@oxlint/binding-darwin-arm64": "^1.85.0",
+    "@rolldown/binding-darwin-arm64": "^1.2.11"
   }
 }
