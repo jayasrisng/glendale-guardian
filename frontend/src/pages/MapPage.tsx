@@ -210,7 +210,7 @@ function MapPage() {
 
   const [selectedHazard, setSelectedHazard] = useState<any>(null);
   const [advice, setAdvice] = useState<any>(null);
-  const [loadingAdvice, setLoadingAdvice] = useState(false);
+  const [loadingAdvice] = useState(false);
 
   /*
     Start everything off.
