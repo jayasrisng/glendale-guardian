@@ -46,5 +46,5 @@ export function getHazardStyle(type: string): HazardStyle {
       color: "#334155",
       fillColor: "#64748b",
     }
-  );
+  )
 }
