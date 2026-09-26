@@ -107,7 +107,12 @@ export function normalizeHazards(data) {
         source: sourceFor(data.wildfire),
       },
       flood: {
-        status: data.flood?.status ?? "unavailable",
+        status:
+          data.flood?.status === "unavailable"
+            ? "unavailable"
+            : data.flood?.matches?.[0]?.attributes?.SFHA_TF === "T"
+              ? "in_zone"
+              : "not_in_zone",
         label:
           data.flood?.status === "in_zone"
             ? `FEMA Zone ${floodZone ?? "mapped"}${floodSubtype ? ` — ${floodSubtype.toLowerCase()}` : ""}`
@@ -125,7 +130,11 @@ export function normalizeHazards(data) {
       },
       seismic: {
         status:
-          [data.fault, data.liquefaction, data.landslide].some(
+          [data.fault, data.liquefaction, data.landslide].every(
+            (item) => !item || item.status === "unavailable",
+          )
+            ? "unavailable"
+            : [data.fault, data.liquefaction, data.landslide].some(
             (item) => item?.status === "in_zone",
           )
             ? "in_zone"
