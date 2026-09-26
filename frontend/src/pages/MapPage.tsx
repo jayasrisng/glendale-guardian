@@ -6,6 +6,7 @@ import {
   Marker,
   Popup,
   TileLayer,
+  useMap,
 } from "react-leaflet";
 
 import BottomNav from "../components/BottomNav";
@@ -44,6 +45,21 @@ const hazardLabels: Record<string, string> = {
   dam_inundation: "Dam Inundation",
   debris_flow: "Debris Flow",
 };
+
+const demoPropertyLocation: [number, number] = [
+  34.184034,
+  -118.2294045,
+];
+
+function RecenterMap({ position }: { position: [number, number] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    map.setView(position, map.getZoom());
+  }, [map, position]);
+
+  return null;
+}
 
 
 const seasonalHazards: Record<
@@ -190,12 +206,12 @@ function getHazardFeatureRef(
 }
 function MapPage() {
   const [location, setLocation] =
-    useState<[number, number] | null>(
-      null
+    useState<[number, number]>(
+      demoPropertyLocation
     );
 
-  const [error, setError] =
-    useState("");
+  const [locationSource, setLocationSource] =
+    useState<"demo" | "device">("demo");
 
   const [loadingHazards, setLoadingHazards] =
     useState(false);
@@ -240,10 +256,6 @@ function MapPage() {
 
   useEffect(() => {
     if (!navigator.geolocation) {
-      setError(
-        "Geolocation is not supported by this browser."
-      );
-
       return;
     }
 
@@ -253,17 +265,14 @@ function MapPage() {
           position.coords.latitude,
           position.coords.longitude,
         ]);
+        setLocationSource("device");
       },
 
-      (err) => {
-        console.error(
-          "Location error:",
-          err
-        );
-
-        setError(
-          "Unable to get your location."
-        );
+      () => {},
+      {
+        enableHighAccuracy: false,
+        maximumAge: 300_000,
+        timeout: 8_000,
       }
     );
   }, []);
@@ -526,57 +535,6 @@ function MapPage() {
     );
   }
 
-  /*
-    --------------------------------
-    LOCATION ERROR
-    --------------------------------
-  */
-
-  if (error) {
-    return (
-      <main className="app-screen">
-        <div
-          style={{
-            padding: "24px",
-          }}
-        >
-          <h1>My Area</h1>
-
-          <p>{error}</p>
-        </div>
-
-        <BottomNav />
-      </main>
-    );
-  }
-
-  /*
-    --------------------------------
-    LOCATION LOADING
-    --------------------------------
-  */
-
-  if (!location) {
-    return (
-      <main className="app-screen">
-        <div
-          style={{
-            padding: "24px",
-          }}
-        >
-          <h1>My Area</h1>
-
-          <p>
-            Getting your
-            location...
-          </p>
-        </div>
-
-        <BottomNav />
-      </main>
-    );
-  }
-
   return (
     <main
       className="app-screen"
@@ -601,6 +559,19 @@ function MapPage() {
         >
           My Area
         </h1>
+
+        <p
+          style={{
+            marginTop: "-10px",
+            marginBottom: "16px",
+            color: "#64748b",
+            fontSize: "13px",
+          }}
+        >
+          {locationSource === "device"
+            ? "Using your current location"
+            : "Showing the demo property at 2527 Canada Blvd"}
+        </p>
 
         {/* SEASON */}
 
@@ -833,6 +804,8 @@ function MapPage() {
           width: "100%",
         }}
       >
+        <RecenterMap position={location} />
+
         <TileLayer
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -844,7 +817,9 @@ function MapPage() {
           position={location}
         >
           <Popup>
-            You are here
+            {locationSource === "device"
+              ? "You are here"
+              : "Demo property"}
           </Popup>
         </Marker>
 
