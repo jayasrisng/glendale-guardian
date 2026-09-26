@@ -16,6 +16,12 @@ export type Finding = {
   source?: { name: string; url?: string; asOf?: string };
 };
 
+export type ResidentProfile = {
+  name: string;
+  address: string;
+  propertyType: string;
+};
+
 export type ActivityEvent = {
   id: string;
   state: "active" | "complete" | "info" | "error";

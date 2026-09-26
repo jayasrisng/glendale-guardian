@@ -39,12 +39,36 @@ type HazardLayer = {
 };
 
 const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+  import.meta.env.VITE_API_BASE_URL ?? "/api";
 
-const demoPropertyLocation: [number, number] = [
+const defaultPropertyLocation: [number, number] = [
   34.184034,
   -118.2294045,
 ];
+
+function loadSelectedProperty() {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem("glendale-guardian-assessment-v2") ?? "{}"
+    );
+    const lat = saved.hazards?.location?.lat;
+    const lon = saved.hazards?.location?.lon;
+    return {
+      location:
+        Number.isFinite(lat) && Number.isFinite(lon)
+          ? ([lat, lon] as [number, number])
+          : defaultPropertyLocation,
+      address:
+        saved.resident?.address ||
+        "2527 Canada Blvd, Glendale, CA 91208",
+    };
+  } catch {
+    return {
+      location: defaultPropertyLocation,
+      address: "2527 Canada Blvd, Glendale, CA 91208",
+    };
+  }
+}
 
 const hazardTypes = [
   "wildfire",
@@ -151,6 +175,16 @@ function getCurrentSeason(): Season {
 
 function getHazardDistance(hazard: any): number {
   if (
+    hazard.dataset === "fema_flood_zones" &&
+    hazard.matches?.[0]?.attributes?.SFHA_TF !== "T"
+  ) {
+    const distances = Object.values(hazard.nearest_by_class ?? {})
+      .filter((item: any) => item?.attributes?.SFHA_TF === "T")
+      .map((item: any) => item.distance_m)
+      .filter((distance): distance is number => typeof distance === "number");
+    if (distances.length) return Math.min(...distances);
+  }
+  if (
     hazard.status === "in_zone" &&
     hazard.matches?.length > 0
   ) {
@@ -180,6 +214,20 @@ function getHazardDistance(hazard: any): number {
 }
 
 function getHazardFeatureRef(hazard: any) {
+  if (
+    hazard.dataset === "fema_flood_zones" &&
+    hazard.matches?.[0]?.attributes?.SFHA_TF !== "T"
+  ) {
+    const nearestSpecialFlood = Object.values(hazard.nearest_by_class ?? {})
+      .filter(
+        (item: any) =>
+          item?.ref &&
+          item?.attributes?.SFHA_TF === "T" &&
+          typeof item.distance_m === "number"
+      )
+      .sort((a: any, b: any) => a.distance_m - b.distance_m)[0] as any;
+    if (nearestSpecialFlood?.ref) return nearestSpecialFlood.ref;
+  }
   if (
     hazard.status === "in_zone" &&
     hazard.matches?.length > 0
@@ -214,13 +262,14 @@ function getHazardFeatureRef(hazard: any) {
 }
 
 function MapPage() {
+  const selectedProperty = useMemo(() => loadSelectedProperty(), []);
   const [location, setLocation] =
     useState<[number, number]>(
-      demoPropertyLocation
+      selectedProperty.location
     );
 
   const [locationSource, setLocationSource] =
-    useState<"demo" | "device">("demo");
+    useState<"property" | "device">("property");
 
   const [season, setSeason] =
     useState<Season>(getCurrentSeason());
@@ -266,34 +315,15 @@ function MapPage() {
     hospitals: true,
   });
 
-  /*
-    Start on the demo property immediately so the page is useful even
-    before browser geolocation resolves. If location access succeeds,
-    switch to the user's device coordinates.
-  */
-  useEffect(() => {
-    if (!navigator.geolocation) {
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocation([
-          position.coords.latitude,
-          position.coords.longitude,
-        ]);
-        setLocationSource("device");
-      },
-      () => {
-        // Keep the demo property if location is denied/unavailable.
-      },
-      {
-        enableHighAccuracy: false,
-        maximumAge: 300_000,
-        timeout: 8_000,
-      }
-    );
-  }, []);
+  function useCurrentLocation() {
+    navigator.geolocation?.getCurrentPosition((position) => {
+      setLocation([
+        position.coords.latitude,
+        position.coords.longitude,
+      ]);
+      setLocationSource("device");
+    });
+  }
 
   /*
     Load resources whenever the active location changes.
@@ -302,8 +332,6 @@ function MapPage() {
   useEffect(() => {
     const [lat, lon] = location;
     let cancelled = false;
-
-    setResourceMarkers([]);
 
     async function loadResources() {
       try {
@@ -441,8 +469,6 @@ function MapPage() {
   useEffect(() => {
     const [lat, lon] = location;
     let cancelled = false;
-
-    setHazardLayers([]);
 
     async function loadHazards() {
       try {
@@ -582,22 +608,36 @@ function MapPage() {
       return candidates[0] ?? null;
     }, [hazardLayers, season]);
 
-  /*
-    Make the season's closest relevant hazard visible automatically,
-    without hiding any other layers the user has turned on.
-  */
-  useEffect(() => {
-    if (!primaryHazard) {
-      return;
-    }
+  function changeSeason(
+    nextSeason: Season
+  ) {
+    setSeason(nextSeason);
 
-    setVisibleHazards(
-      (previous) => ({
-        ...previous,
-        [primaryHazard.type]: true,
-      })
-    );
-  }, [primaryHazard]);
+    const nextPrimary = hazardLayers
+      .filter((hazard) =>
+        seasonalHazards[
+          nextSeason
+        ].includes(hazard.type)
+      )
+      .filter((hazard) =>
+        Number.isFinite(
+          hazard.distance
+        )
+      )
+      .toSorted(
+        (a, b) =>
+          a.distance - b.distance
+      )[0];
+
+    if (nextPrimary) {
+      setVisibleHazards(
+        (previous) => ({
+          ...previous,
+          [nextPrimary.type]: true,
+        })
+      );
+    }
+  }
 
   function toggleHazard(
     type: string
@@ -707,9 +747,16 @@ function MapPage() {
             <p className="location-caption">
               {locationSource ===
               "device"
-                ? "Using your current location"
-                : "Showing the demo property at 2527 Canada Blvd"}
+                ? "Viewing your current location"
+                : `Viewing selected property: ${selectedProperty.address}`}
             </p>
+            <button
+              type="button"
+              className="map-location-button"
+              onClick={useCurrentLocation}
+            >
+              Use my current location
+            </button>
           </div>
         </div>
 
@@ -724,7 +771,7 @@ function MapPage() {
           id="season"
           value={season}
           onChange={(event) =>
-            setSeason(
+            changeSeason(
               event.target
                 .value as Season
             )
