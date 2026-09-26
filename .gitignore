@@ -3,4 +3,10 @@ frontend/node_modules/
 __pycache__/
 *.pyc
 .env
+.env.local
+.env.*.local
+node_modules/
+.next/
+out/
+*.log
 .DS_Store
