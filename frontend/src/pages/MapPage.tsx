@@ -7,6 +7,7 @@ import {
   Pane,
   Popup,
   TileLayer,
+  useMap,
 } from "react-leaflet";
 
 import BottomNav from "../components/BottomNav";
@@ -56,11 +57,47 @@ const hazardLabels: Record<string, string> = {
   debris_flow: "Debris Flow",
 };
 
-const seasonalHazards: Record<Season, string[]> = {
-  spring: ["flood", "landslide", "debris_flow"],
-  summer: ["wildfire"],
-  fall: ["wildfire", "debris_flow"],
-  winter: ["flood", "landslide", "debris_flow", "dam_inundation"],
+const demoPropertyLocation: [number, number] = [
+  34.184034,
+  -118.2294045,
+];
+
+function RecenterMap({ position }: { position: [number, number] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    map.setView(position, map.getZoom());
+  }, [map, position]);
+
+  return null;
+}
+
+
+const seasonalHazards: Record<
+  Season,
+  string[]
+> = {
+  spring: [
+    "flood",
+    "landslide",
+    "debris_flow",
+  ],
+
+  summer: [
+    "wildfire",
+  ],
+
+  fall: [
+    "wildfire",
+    "debris_flow",
+  ],
+
+  winter: [
+    "flood",
+    "landslide",
+    "debris_flow",
+    "dam_inundation",
+  ],
 };
 
 const resourceKinds = ["fire_stations", "police_stations", "hospitals"];
@@ -133,20 +170,29 @@ function getHazardFeatureRef(hazard: any) {
 
   return null;
 }
-
 function MapPage() {
-  const [resourceMarkers, setResourceMarkers] = useState<ResourceMarker[]>([]);
-  const [loadingResources, setLoadingResources] = useState(false);
+  const [location, setLocation] =
+    useState<[number, number]>(
+      demoPropertyLocation
+    );
 
-  const [location, setLocation] = useState<[number, number] | null>(null);
-  const [error, setError] = useState("");
-  const [loadingHazards, setLoadingHazards] = useState(false);
-  const [season, setSeason] = useState<Season>(getCurrentSeason());
-  const [hazardLayers, setHazardLayers] = useState<HazardLayer[]>([]);
+  const [locationSource, setLocationSource] =
+    useState<"demo" | "device">("demo");
+
+  const [loadingHazards, setLoadingHazards] =
+    useState(false);
+
+  const [season, setSeason] =
+    useState<Season>(
+      getCurrentSeason()
+    );
+
+  const [hazardLayers, setHazardLayers] =
+    useState<HazardLayer[]>([]);
 
   const [selectedHazard, setSelectedHazard] = useState<any>(null);
-  const [advice, setAdvice] = useState<Advice | null>(null);
-  const [loadingAdvice, setLoadingAdvice] = useState(false);
+  const [advice, setAdvice] = useState<any>(null);
+  const [loadingAdvice] = useState(false);
 
   const [visibleHazards, setVisibleHazards] = useState<Record<string, boolean>>({
     wildfire: false,
@@ -168,7 +214,6 @@ function MapPage() {
 
   useEffect(() => {
     if (!navigator.geolocation) {
-      setError("Geolocation is not supported by this browser.");
       return;
     }
 
@@ -178,10 +223,14 @@ function MapPage() {
           position.coords.latitude,
           position.coords.longitude,
         ]);
+        setLocationSource("device");
       },
-      (err) => {
-        console.error("Location error:", err);
-        setError("Unable to get your location.");
+
+      () => {},
+      {
+        enableHighAccuracy: false,
+        maximumAge: 300_000,
+        timeout: 8_000,
       }
     );
   }, []);
@@ -199,7 +248,7 @@ function MapPage() {
         setLoadingResources(true);
 
         const response = await fetch(
-          `http://127.0.0.1:8000/resources?lat=${lat}&lon=${lon}&limit=2`
+          `/api/hazards?lat=${lat}&lon=${lon}`
         );
 
         if (!response.ok) {
@@ -279,9 +328,13 @@ function MapPage() {
     const [lat, lon] = location;
     let cancelled = false;
 
-    async function loadHazards() {
-      try {
-        setLoadingHazards(true);
+          try {
+            const geometryResponse =
+              await fetch(
+                `/api/feature-geometry?layer_url=${encodeURIComponent(
+                  featureRef.layer_url
+                )}&object_id=${featureRef.object_id}`
+              );
 
         const response = await fetch(
           `http://127.0.0.1:8000/hazards?lat=${lat}&lon=${lon}`
@@ -392,96 +445,57 @@ function MapPage() {
     }));
   }
 
-  function toggleResource(kind: string) {
-    setVisibleResources((previous) => ({
-      ...previous,
-      [kind]: !previous[kind],
-    }));
-  }
-
-  async function generateAdvice(hazard: HazardLayer, feature: any) {
-    try {
-      setLoadingAdvice(true);
-      setAdvice(null);
-
-      const response = await fetch("http://127.0.0.1:8000/ai/advice", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          hazard: hazard.type,
-          title: hazard.title,
-          status: hazard.status,
-          distance: hazard.distance,
-          season,
-          properties: feature.properties ?? {},
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Unable to generate advice");
-      }
-
-      const data = await response.json();
-      setAdvice(data);
-    } catch (adviceError) {
-      console.error("Advice error:", adviceError);
-
-      setAdvice({
-        summary: "Safety guidance is temporarily unavailable.",
-        tips: [
-          "Monitor official emergency information.",
-          "Keep emergency supplies available.",
-          "Know your local evacuation routes and resources.",
-        ],
-        note: "Mapped hazard data is not a real-time emergency warning.",
-      });
-    } finally {
-      setLoadingAdvice(false);
-    }
-  }
-
-  if (error) {
-    return (
-      <main className="app-screen">
-        <div className="map-status-card">
-          <h1>My Area</h1>
-          <p>{error}</p>
-        </div>
-        <BottomNav />
-      </main>
-    );
-  }
-
-  if (!location) {
-    return (
-      <main className="app-screen">
-        <div className="map-status-card">
-          <h1>My Area</h1>
-          <p>Getting your location...</p>
-        </div>
-        <BottomNav />
-      </main>
-    );
-  }
-
   return (
-    <main className="app-screen map-page">
-      <section className="map-controls">
-        <div className="map-title-row">
-          <div>
-            <p className="eyebrow">Glendale Guardian</p>
-            <h1>My Area</h1>
-          </div>
+    <main
+      className="app-screen"
+      style={{
+        background:
+          "#f8fafc",
+      }}
+    >
+      {/* HEADER */}
 
-          {(loadingHazards || loadingResources) && (
-            <span className="loading-pill">Updating map…</span>
-          )}
-        </div>
+      <div
+        style={{
+          padding: "16px",
+        }}
+      >
+        <h1
+          style={{
+            marginTop: 0,
+            marginBottom:
+              "16px",
+          }}
+        >
+          My Area
+        </h1>
 
-        <label className="control-label" htmlFor="season">
-          Seasonal hazard view
+        <p
+          style={{
+            marginTop: "-10px",
+            marginBottom: "16px",
+            color: "#64748b",
+            fontSize: "13px",
+          }}
+        >
+          {locationSource === "device"
+            ? "Using your current location"
+            : "Showing the demo property at 2527 Canada Blvd"}
+        </p>
+
+        {/* SEASON */}
+
+        <label
+          htmlFor="season"
+          style={{
+            display: "block",
+            fontSize: "14px",
+            fontWeight: 600,
+            marginBottom:
+              "6px",
+          }}
+        >
+          Seasonal Hazard View
         </label>
 
         <select
@@ -551,46 +565,53 @@ function MapPage() {
             })}
           </div>
         </div>
+      </div>
 
-        <div className="layer-section resource-section">
-          <div className="section-heading-row">
-            <span className="section-heading">Nearby resources</span>
-            <span className="section-helper">Markers stay above hazard zones</span>
-          </div>
+      {/* MAP */}
 
-          <div className="chip-row">
-            {resourceKinds.map((kind) => {
-              const active = visibleResources[kind];
-              const color = resourceColors[kind];
-              const count = resourceMarkers.filter(
-                (resource) => resource.kind === kind
-              ).length;
+      <MapContainer
+        center={location}
+        zoom={11}
+        style={{
+          height:
+            "calc(100vh - 330px)",
+          minHeight:
+            "400px",
+          width: "100%",
+        }}
+      >
+        <RecenterMap position={location} />
 
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => toggleResource(kind)}
-                  className={`filter-chip resource-chip ${
-                    active ? "filter-chip-active" : ""
-                  }`}
-                  style={
-                    active
-                      ? {
-                          background: color,
-                          borderColor: color,
-                          color: "white",
-                        }
-                      : undefined
-                  }
-                >
-                  <span
-                    className="resource-dot"
-                    style={{ background: active ? "white" : color }}
-                  />
-                  {resourceLabels[kind]}
-                  {count > 0 && <span className="chip-count">{count}</span>}
-                </button>
+        <TileLayer
+          attribution="&copy; OpenStreetMap contributors"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        {/* USER */}
+
+        <Marker
+          position={location}
+        >
+          <Popup>
+            {locationSource === "device"
+              ? "You are here"
+              : "Demo property"}
+          </Popup>
+        </Marker>
+
+        {/* HAZARDS */}
+
+        {hazardLayers
+          .filter(
+            (hazard) =>
+              visibleHazards[
+                hazard.type
+              ]
+          )
+          .map((hazard) => {
+            const styles =
+              getHazardStyle(
+                hazard.type
               );
             })}
           </div>

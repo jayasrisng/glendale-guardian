@@ -1,4 +1,12 @@
 {
+  "name": "glendale-guardian",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm --prefix frontend run build",
+    "lint": "npm --prefix frontend run lint"
+  },
   "dependencies": {
     "lucide-react": "^1.48.0"
   }
