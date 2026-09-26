@@ -188,7 +188,6 @@ function getHazardFeatureRef(
 
   return null;
 }
-
 function MapPage() {
   const [location, setLocation] =
     useState<[number, number] | null>(
