@@ -174,12 +174,13 @@ function AgentPage() {
       addEvent("GIS response received", "complete", hazardBody.location.matched_address);
 
       addEvent("Requesting microphone access", "active");
-      await Promise.race([
+      const permissionStream = await Promise.race([
         navigator.mediaDevices.getUserMedia({ audio: true }),
         new Promise<never>((_, reject) => {
           window.setTimeout(() => reject(new Error("Microphone permission timed out. Allow microphone access and try again.")), 15_000);
         }),
       ]);
+      permissionStream.getTracks().forEach((track) => track.stop());
       addEvent("Microphone ready", "complete");
 
       addEvent("Connecting to Glendale Guardian", "active");
