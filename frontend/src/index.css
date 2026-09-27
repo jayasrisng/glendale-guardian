@@ -337,3 +337,28 @@ h1, h2, h3, .brand-mark { font-family: 'Libre Franklin', system-ui, sans-serif; 
     font-size: 11px;
   }
 }
+.guardian-map {
+  height: 520px !important;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+}
+
+.leaflet-tile {
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.leaflet-container img {
+  max-width: none !important;
+}
+
+.leaflet-tile {
+  width: 256px !important;
+  height: 256px !important;
+}
