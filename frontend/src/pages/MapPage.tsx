@@ -15,7 +15,11 @@ import {
 import BottomNav from "../components/BottomNav";
 import { getHazardStyle } from "../styles/hazardStyles";
 
-type Season = "spring" | "summer" | "fall" | "winter";
+type Season =
+  | "spring"
+  | "summer"
+  | "fall"
+  | "winter";
 
 type ResourceMarker = {
   kind: string;
@@ -36,7 +40,10 @@ type HazardLayer = {
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ?? "/api";
 
-const defaultPropertyLocation: [number, number] = [
+const defaultPropertyLocation: [
+  number,
+  number,
+] = [
   34.184034,
   -118.2294045,
 ];
@@ -44,23 +51,37 @@ const defaultPropertyLocation: [number, number] = [
 function loadSelectedProperty() {
   try {
     const saved = JSON.parse(
-      localStorage.getItem("glendale-guardian-assessment-v2") ?? "{}"
+      localStorage.getItem(
+        "glendale-guardian-assessment-v2",
+      ) ?? "{}",
     );
-    const lat = saved.hazards?.location?.lat;
-    const lon = saved.hazards?.location?.lon;
+
+    const lat =
+      saved.hazards?.location?.lat;
+
+    const lon =
+      saved.hazards?.location?.lon;
+
     return {
       location:
-        Number.isFinite(lat) && Number.isFinite(lon)
-          ? ([lat, lon] as [number, number])
+        Number.isFinite(lat) &&
+        Number.isFinite(lon)
+          ? ([lat, lon] as [
+              number,
+              number,
+            ])
           : defaultPropertyLocation,
+
       address:
         saved.resident?.address ||
         "2527 Canada Blvd, Glendale, CA 91208",
     };
   } catch {
     return {
-      location: defaultPropertyLocation,
-      address: "2527 Canada Blvd, Glendale, CA 91208",
+      location:
+        defaultPropertyLocation,
+      address:
+        "2527 Canada Blvd, Glendale, CA 91208",
     };
   }
 }
@@ -75,7 +96,10 @@ const hazardTypes = [
   "debris_flow",
 ];
 
-const hazardLabels: Record<string, string> = {
+const hazardLabels: Record<
+  string,
+  string
+> = {
   wildfire: "Wildfire",
   flood: "Flood",
   fault: "Fault Zone",
@@ -85,11 +109,31 @@ const hazardLabels: Record<string, string> = {
   debris_flow: "Debris Flow",
 };
 
-const seasonalHazards: Record<Season, string[]> = {
-  spring: ["flood", "landslide", "debris_flow"],
-  summer: ["wildfire"],
-  fall: ["wildfire", "debris_flow"],
-  winter: ["flood", "landslide", "debris_flow", "dam_inundation"],
+const seasonalHazards: Record<
+  Season,
+  string[]
+> = {
+  spring: [
+    "flood",
+    "landslide",
+    "debris_flow",
+  ],
+
+  summer: [
+    "wildfire",
+  ],
+
+  fall: [
+    "wildfire",
+    "debris_flow",
+  ],
+
+  winter: [
+    "flood",
+    "landslide",
+    "debris_flow",
+    "dam_inundation",
+  ],
 };
 
 const resourceKinds = [
@@ -98,46 +142,56 @@ const resourceKinds = [
   "hospitals",
 ];
 
-const resourceLabels: Record<string, string> = {
+const resourceLabels: Record<
+  string,
+  string
+> = {
   fire_stations: "Fire",
   police_stations: "Police",
   hospitals: "Hospitals",
 };
 
-const resourceColors: Record<string, string> = {
+const resourceColors: Record<
+  string,
+  string
+> = {
   fire_stations: "#dc2626",
   police_stations: "#2563eb",
   hospitals: "#16a34a",
 };
 
 /*
-  Cache geometry requests for the lifetime of the page.
-  This prevents duplicate ArcGIS geometry requests if the component remounts.
+  Cache feature geometry so React
+  doesn't make duplicate ArcGIS requests.
 */
-const geometryCache = new Map<string, Promise<any>>();
+const geometryCache = new Map<
+  string,
+  Promise<any>
+>();
 
 async function fetchGeometry(
   layerUrl: string,
-  objectId: number
+  objectId: number,
 ) {
-  const key = `${layerUrl}:${objectId}`;
+  const key =
+    `${layerUrl}:${objectId}`;
 
   if (!geometryCache.has(key)) {
     geometryCache.set(
       key,
       fetch(
         `${API_BASE}/feature-geometry?layer_url=${encodeURIComponent(
-          layerUrl
-        )}&object_id=${objectId}`
+          layerUrl,
+        )}&object_id=${objectId}`,
       ).then(async (response) => {
         if (!response.ok) {
           throw new Error(
-            `Geometry request failed (${response.status})`
+            `Geometry request failed (${response.status})`,
           );
         }
 
         return response.json();
-      })
+      }),
     );
   }
 
@@ -152,103 +206,210 @@ function RecenterMap({
   const map = useMap();
 
   useEffect(() => {
-    map.setView(position, map.getZoom());
+    map.setView(
+      position,
+      map.getZoom(),
+    );
   }, [map, position]);
 
   return null;
 }
 
 function getCurrentSeason(): Season {
-  const month = new Date().getMonth() + 1;
+  const month =
+    new Date().getMonth() + 1;
 
-  if (month >= 3 && month <= 5) return "spring";
-  if (month >= 6 && month <= 8) return "summer";
-  if (month >= 9 && month <= 11) return "fall";
+  if (
+    month >= 3 &&
+    month <= 5
+  ) {
+    return "spring";
+  }
+
+  if (
+    month >= 6 &&
+    month <= 8
+  ) {
+    return "summer";
+  }
+
+  if (
+    month >= 9 &&
+    month <= 11
+  ) {
+    return "fall";
+  }
 
   return "winter";
 }
 
-function getHazardDistance(hazard: any): number {
+function getHazardDistance(
+  hazard: any,
+): number {
+  /*
+    FEMA Zone X can technically be an
+    intersecting polygon while not being
+    a Special Flood Hazard Area.
+
+    Prefer the closest special flood
+    area for map visualization.
+  */
   if (
-    hazard.dataset === "fema_flood_zones" &&
-    hazard.matches?.[0]?.attributes?.SFHA_TF !== "T"
+    hazard.dataset ===
+      "fema_flood_zones" &&
+    hazard.matches?.[0]?.attributes
+      ?.SFHA_TF !== "T"
   ) {
-    const distances = Object.values(hazard.nearest_by_class ?? {})
-      .filter((item: any) => item?.attributes?.SFHA_TF === "T")
-      .map((item: any) => item.distance_m)
-      .filter((distance): distance is number => typeof distance === "number");
-    if (distances.length) return Math.min(...distances);
+    const distances =
+      Object.values(
+        hazard.nearest_by_class ?? {},
+      )
+        .filter(
+          (item: any) =>
+            item?.attributes
+              ?.SFHA_TF === "T",
+        )
+        .map(
+          (item: any) =>
+            item.distance_m,
+        )
+        .filter(
+          (
+            distance,
+          ): distance is number =>
+            typeof distance ===
+            "number",
+        );
+
+    if (distances.length > 0) {
+      return Math.min(
+        ...distances,
+      );
+    }
   }
+
   if (
-    hazard.status === "in_zone" &&
+    hazard.status ===
+      "in_zone" &&
     hazard.matches?.length > 0
   ) {
     return 0;
   }
 
-  if (hazard.nearest?.distance_m != null) {
-    return hazard.nearest.distance_m;
+  if (
+    hazard.nearest
+      ?.distance_m != null
+  ) {
+    return hazard.nearest
+      .distance_m;
   }
 
-  if (hazard.nearest_by_class) {
-    const distances = Object.values(
-      hazard.nearest_by_class
-    )
-      .map((item: any) => item?.distance_m)
-      .filter(
-        (distance): distance is number =>
-          typeof distance === "number"
-      );
+  if (
+    hazard.nearest_by_class
+  ) {
+    const distances =
+      Object.values(
+        hazard.nearest_by_class,
+      )
+        .map(
+          (item: any) =>
+            item?.distance_m,
+        )
+        .filter(
+          (
+            distance,
+          ): distance is number =>
+            typeof distance ===
+            "number",
+        );
 
     if (distances.length > 0) {
-      return Math.min(...distances);
+      return Math.min(
+        ...distances,
+      );
     }
   }
 
   return Infinity;
 }
 
-function getHazardFeatureRef(hazard: any) {
+function getHazardFeatureRef(
+  hazard: any,
+) {
+  /*
+    For FEMA flood data, if the
+    current polygon isn't a Special
+    Flood Hazard Area, show the
+    closest SFHA polygon instead.
+  */
   if (
-    hazard.dataset === "fema_flood_zones" &&
-    hazard.matches?.[0]?.attributes?.SFHA_TF !== "T"
+    hazard.dataset ===
+      "fema_flood_zones" &&
+    hazard.matches?.[0]?.attributes
+      ?.SFHA_TF !== "T"
   ) {
-    const nearestSpecialFlood = Object.values(hazard.nearest_by_class ?? {})
-      .filter(
-        (item: any) =>
-          item?.ref &&
-          item?.attributes?.SFHA_TF === "T" &&
-          typeof item.distance_m === "number"
+    const nearestSpecialFlood =
+      Object.values(
+        hazard.nearest_by_class ?? {},
       )
-      .sort((a: any, b: any) => a.distance_m - b.distance_m)[0] as any;
-    if (nearestSpecialFlood?.ref) return nearestSpecialFlood.ref;
-  }
-  if (
-    hazard.status === "in_zone" &&
-    hazard.matches?.length > 0
-  ) {
-    return hazard.matches[0].ref;
+        .filter(
+          (item: any) =>
+            item?.ref &&
+            item?.attributes
+              ?.SFHA_TF === "T" &&
+            typeof item.distance_m ===
+              "number",
+        )
+        .sort(
+          (a: any, b: any) =>
+            a.distance_m -
+            b.distance_m,
+        )[0] as any;
+
+    if (
+      nearestSpecialFlood?.ref
+    ) {
+      return nearestSpecialFlood.ref;
+    }
   }
 
-  if (hazard.nearest?.ref) {
+  if (
+    hazard.status ===
+      "in_zone" &&
+    hazard.matches?.length > 0
+  ) {
+    return hazard.matches[0]
+      .ref;
+  }
+
+  if (
+    hazard.nearest?.ref
+  ) {
     return hazard.nearest.ref;
   }
 
-  if (hazard.nearest_by_class) {
-    const candidates = Object.values(
-      hazard.nearest_by_class
-    ) as any[];
+  if (
+    hazard.nearest_by_class
+  ) {
+    const candidates =
+      Object.values(
+        hazard.nearest_by_class,
+      ) as any[];
 
-    const closest = candidates
-      .filter(
-        (item) =>
-          item?.ref &&
-          typeof item?.distance_m === "number"
-      )
-      .sort(
-        (a, b) =>
-          a.distance_m - b.distance_m
-      )[0];
+    const closest =
+      candidates
+        .filter(
+          (item) =>
+            item?.ref &&
+            typeof item
+              ?.distance_m ===
+              "number",
+        )
+        .sort(
+          (a, b) =>
+            a.distance_m -
+            b.distance_m,
+        )[0];
 
     return closest?.ref ?? null;
   }
@@ -257,203 +418,355 @@ function getHazardFeatureRef(hazard: any) {
 }
 
 function MapPage() {
-  const selectedProperty = useMemo(() => loadSelectedProperty(), []);
-  const [location, setLocation] =
-    useState<[number, number]>(
-      selectedProperty.location
+  const selectedProperty =
+    useMemo(
+      () =>
+        loadSelectedProperty(),
+      [],
     );
 
-  const [locationSource, setLocationSource] =
-    useState<"property" | "device">("property");
+  const [
+    location,
+    setLocation,
+  ] = useState<
+    [number, number]
+  >(
+    selectedProperty.location,
+  );
 
-  const [season, setSeason] =
-    useState<Season>(getCurrentSeason());
+  const [
+    locationSource,
+    setLocationSource,
+  ] = useState<
+    "property" | "device"
+  >("property");
 
-  const [hazardLayers, setHazardLayers] =
-    useState<HazardLayer[]>([]);
+  const [
+    season,
+    setSeason,
+  ] = useState<Season>(
+    getCurrentSeason(),
+  );
 
-  const [resourceMarkers, setResourceMarkers] =
-    useState<ResourceMarker[]>([]);
+  const [
+    hazardLayers,
+    setHazardLayers,
+  ] = useState<
+    HazardLayer[]
+  >([]);
 
-  const [loadingHazards, setLoadingHazards] =
-    useState(false);
+  const [
+    resourceMarkers,
+    setResourceMarkers,
+  ] = useState<
+    ResourceMarker[]
+  >([]);
 
-  const [loadingResources, setLoadingResources] =
-    useState(false);
+  const [
+    loadingHazards,
+    setLoadingHazards,
+  ] = useState(false);
 
-  const [selectedHazard, setSelectedHazard] =
-    useState<any>(null);
+  const [
+    loadingResources,
+    setLoadingResources,
+  ] = useState(false);
 
-  const [agentText, setAgentText] =
-    useState<string>("");
+  const [
+    selectedHazard,
+    setSelectedHazard,
+  ] = useState<any>(null);
 
-  const [sendingHazardContext, setSendingHazardContext] =
-    useState(false);
+  const [
+    agentText,
+    setAgentText,
+  ] = useState("");
 
-  const conversation = useConversation({
-    onMessage: ({ message, role }) => {
-      if (role === "agent") {
-        setAgentText(message);
-      }
-    },
-  });
+  const [
+    sendingHazardContext,
+    setSendingHazardContext,
+  ] = useState(false);
 
-  const [visibleHazards, setVisibleHazards] =
-    useState<Record<string, boolean>>({
-      wildfire: false,
-      flood: false,
-      fault: false,
-      liquefaction: false,
-      landslide: false,
-      dam_inundation: false,
-      debris_flow: false,
+  /*
+    ELEVENLABS
+  */
+  const conversation =
+    useConversation({
+      onMessage: ({
+        message,
+        role,
+      }) => {
+        if (
+          role === "agent"
+        ) {
+          setAgentText(
+            message,
+          );
+
+          setSendingHazardContext(
+            false,
+          );
+        }
+      },
+
+      onError: (error) => {
+        console.error(
+          "Guardian conversation error:",
+          error,
+        );
+
+        setAgentText(
+          "Guardian guidance is temporarily unavailable.",
+        );
+
+        setSendingHazardContext(
+          false,
+        );
+      },
     });
+
+  const [
+    visibleHazards,
+    setVisibleHazards,
+  ] = useState<
+    Record<
+      string,
+      boolean
+    >
+  >({
+    wildfire: false,
+    flood: false,
+    fault: false,
+    liquefaction: false,
+    landslide: false,
+    dam_inundation: false,
+    debris_flow: false,
+  });
 
   const [
     visibleResources,
     setVisibleResources,
-  ] = useState<Record<string, boolean>>({
+  ] = useState<
+    Record<
+      string,
+      boolean
+    >
+  >({
     fire_stations: true,
     police_stations: true,
     hospitals: true,
   });
 
   function useCurrentLocation() {
-    navigator.geolocation?.getCurrentPosition((position) => {
-      setLocation([
-        position.coords.latitude,
-        position.coords.longitude,
-      ]);
-      setLocationSource("device");
-    });
+    if (
+      !navigator.geolocation
+    ) {
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocation([
+          position.coords
+            .latitude,
+          position.coords
+            .longitude,
+        ]);
+
+        setLocationSource(
+          "device",
+        );
+      },
+
+      (error) => {
+        console.error(
+          "Location error:",
+          error,
+        );
+      },
+    );
   }
 
   /*
-    Load resources whenever the active location changes.
-    Geometry requests happen in parallel and markers are added progressively.
+    LOAD NEARBY RESOURCES
   */
   useEffect(() => {
-    const [lat, lon] = location;
+    const [
+      lat,
+      lon,
+    ] = location;
+
     let cancelled = false;
+
+    setResourceMarkers([]);
 
     async function loadResources() {
       try {
-        setLoadingResources(true);
-
-        const response = await fetch(
-          `${API_BASE}/resources?lat=${lat}&lon=${lon}&limit=2`
+        setLoadingResources(
+          true,
         );
 
-        if (!response.ok) {
+        const response =
+          await fetch(
+            `${API_BASE}/resources?lat=${lat}&lon=${lon}&limit=2`,
+          );
+
+        if (
+          !response.ok
+        ) {
           throw new Error(
-            "Unable to load resources."
+            "Unable to load resources.",
           );
         }
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
-        const requests = (data.groups ?? [])
-          .filter((group: any) =>
-            resourceKinds.includes(group.kind)
+        const requests =
+          (
+            data.groups ??
+            []
           )
-          .flatMap((group: any) =>
-            (group.results ?? []).map(
-              async (resource: any) => {
-                const ref = resource.ref;
-                if (!ref) return;
+            .filter(
+              (
+                group: any,
+              ) =>
+                resourceKinds.includes(
+                  group.kind,
+                ),
+            )
+            .flatMap(
+              (
+                group: any,
+              ) =>
+                (
+                  group.results ??
+                  []
+                ).map(
+                  async (
+                    resource: any,
+                  ) => {
+                    const ref =
+                      resource.ref;
 
-                try {
-                  const geometry =
-                    await fetchGeometry(
-                      ref.layer_url,
-                      ref.object_id
-                    );
+                    if (
+                      !ref
+                    ) {
+                      return;
+                    }
 
-                  const feature =
-                    geometry.features?.[0];
+                    try {
+                      const geometry =
+                        await fetchGeometry(
+                          ref.layer_url,
+                          ref.object_id,
+                        );
 
-                  if (
-                    !feature ||
-                    feature.geometry?.type !==
-                      "Point"
-                  ) {
-                    return;
-                  }
+                      const feature =
+                        geometry
+                          .features?.[0];
 
-                  const [
-                    longitude,
-                    latitude,
-                  ] =
-                    feature.geometry
-                      .coordinates;
+                      if (
+                        !feature ||
+                        feature
+                          .geometry
+                          ?.type !==
+                          "Point"
+                      ) {
+                        return;
+                      }
 
-                  const marker: ResourceMarker =
-                    {
-                      kind: group.kind,
-                      name:
-                        resource.name ??
-                        group.title,
-                      address:
-                        resource.address ??
-                        null,
-                      distance:
-                        resource.distance_m,
-                      position: [
-                        latitude,
+                      const [
                         longitude,
-                      ],
-                    };
+                        latitude,
+                      ] =
+                        feature
+                          .geometry
+                          .coordinates;
 
-                  if (!cancelled) {
-                    setResourceMarkers(
-                      (previous) => {
-                        const duplicate =
-                          previous.some(
-                            (item) =>
-                              item.kind ===
-                                marker.kind &&
-                              item.name ===
-                                marker.name &&
-                              item.position[0] ===
-                                marker
-                                  .position[0] &&
-                              item.position[1] ===
-                                marker
-                                  .position[1]
-                          );
+                      const marker: ResourceMarker =
+                        {
+                          kind:
+                            group.kind,
 
-                        return duplicate
-                          ? previous
-                          : [
+                          name:
+                            resource.name ??
+                            group.title,
+
+                          address:
+                            resource.address ??
+                            null,
+
+                          distance:
+                            resource.distance_m,
+
+                          position:
+                            [
+                              latitude,
+                              longitude,
+                            ],
+                        };
+
+                      if (
+                        !cancelled
+                      ) {
+                        setResourceMarkers(
+                          (
+                            previous,
+                          ) => {
+                            const duplicate =
+                              previous.some(
+                                (
+                                  item,
+                                ) =>
+                                  item.kind ===
+                                    marker.kind &&
+                                  item.name ===
+                                    marker.name,
+                              );
+
+                            if (
+                              duplicate
+                            ) {
+                              return previous;
+                            }
+
+                            return [
                               ...previous,
                               marker,
                             ];
+                          },
+                        );
                       }
-                    );
-                  }
-                } catch (
-                  resourceError
-                ) {
-                  console.error(
-                    "Resource geometry error:",
-                    resourceError
-                  );
-                }
-              }
-            )
-          );
+                    } catch (
+                      resourceError
+                    ) {
+                      console.error(
+                        "Resource geometry error:",
+                        resourceError,
+                      );
+                    }
+                  },
+                ),
+            );
 
         await Promise.allSettled(
-          requests
+          requests,
         );
-      } catch (resourceError) {
+      } catch (
+        resourceError
+      ) {
         console.error(
           "Resource loading error:",
-          resourceError
+          resourceError,
         );
       } finally {
-        if (!cancelled) {
-          setLoadingResources(false);
+        if (
+          !cancelled
+        ) {
+          setLoadingResources(
+            false,
+          );
         }
       }
     }
@@ -466,114 +779,130 @@ function MapPage() {
   }, [location]);
 
   /*
-    Load GIS hazard data only when location changes.
-    Season changes only change which already-loaded layer is emphasized.
+    LOAD HAZARD GIS LAYERS
   */
   useEffect(() => {
-    const [lat, lon] = location;
+    const [
+      lat,
+      lon,
+    ] = location;
+
     let cancelled = false;
 
     async function loadHazards() {
       try {
-        setLoadingHazards(true);
-
-        const response = await fetch(
-          `${API_BASE}/hazards?lat=${lat}&lon=${lon}`
+        setLoadingHazards(
+          true,
         );
 
-        if (!response.ok) {
+        const response =
+          await fetch(
+            `${API_BASE}/hazards?lat=${lat}&lon=${lon}`,
+          );
+
+        if (
+          !response.ok
+        ) {
           throw new Error(
-            "Unable to load hazard data."
+            "Unable to load hazard data.",
           );
         }
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
-        const loadOneHazard =
-          async (type: string) => {
-            const hazard = data[type];
+        const layers: HazardLayer[] =
+          [];
 
-            if (!hazard) {
-              return;
-            }
+        for (
+          const type of hazardTypes
+        ) {
+          const hazard =
+            data[type];
 
-            const featureRef =
-              getHazardFeatureRef(hazard);
+          if (
+            !hazard
+          ) {
+            continue;
+          }
 
-            if (!featureRef) {
-              return;
-            }
+          const featureRef =
+            getHazardFeatureRef(
+              hazard,
+            );
 
-            try {
-              const geometry =
-                await fetchGeometry(
-                  featureRef.layer_url,
-                  featureRef.object_id
-                );
+          if (
+            !featureRef
+          ) {
+            continue;
+          }
 
-              if (
-                !geometry?.features
-                  ?.length
-              ) {
-                return;
-              }
-
-              const layer: HazardLayer =
-                {
-                  type,
-                  title:
-                    hazard.title ??
-                    hazardLabels[type],
-                  status:
-                    hazard.status ??
-                    "unknown",
-                  distance:
-                    getHazardDistance(
-                      hazard
-                    ),
-                  geometry,
-                };
-
-              if (!cancelled) {
-                setHazardLayers(
-                  (previous) => {
-                    const withoutOld =
-                      previous.filter(
-                        (item) =>
-                          item.type !==
-                          type
-                      );
-
-                    return [
-                      ...withoutOld,
-                      layer,
-                    ];
-                  }
-                );
-              }
-            } catch (
-              geometryError
-            ) {
-              console.error(
-                `Failed to load ${type}:`,
-                geometryError
+          try {
+            const geometry =
+              await fetchGeometry(
+                featureRef.layer_url,
+                featureRef.object_id,
               );
-            }
-          };
 
-        await Promise.allSettled(
-          hazardTypes.map(
-            loadOneHazard
-          )
-        );
-      } catch (loadError) {
+            if (
+              !geometry
+                ?.features
+                ?.length
+            ) {
+              continue;
+            }
+
+            layers.push({
+              type,
+
+              title:
+                hazard.title ??
+                hazardLabels[
+                  type
+                ],
+
+              status:
+                hazard.status ??
+                "unknown",
+
+              distance:
+                getHazardDistance(
+                  hazard,
+                ),
+
+              geometry,
+            });
+          } catch (
+            geometryError
+          ) {
+            console.error(
+              `Failed to load ${type}:`,
+              geometryError,
+            );
+          }
+        }
+
+        if (
+          !cancelled
+        ) {
+          setHazardLayers(
+            layers,
+          );
+        }
+      } catch (
+        loadError
+      ) {
         console.error(
           "Hazard loading error:",
-          loadError
+          loadError,
         );
       } finally {
-        if (!cancelled) {
-          setLoadingHazards(false);
+        if (
+          !cancelled
+        ) {
+          setLoadingHazards(
+            false,
+          );
         }
       }
     }
@@ -585,146 +914,260 @@ function MapPage() {
     };
   }, [location]);
 
+  /*
+    FIND CLOSEST SEASONAL
+    HAZARD
+  */
   const primaryHazard =
     useMemo(() => {
       const relevantTypes =
-        seasonalHazards[season];
+        seasonalHazards[
+          season
+        ];
 
       const candidates =
         hazardLayers
-          .filter((hazard) =>
-            relevantTypes.includes(
-              hazard.type
-            )
+          .filter(
+            (hazard) =>
+              relevantTypes.includes(
+                hazard.type,
+              ),
           )
-          .filter((hazard) =>
-            Number.isFinite(
-              hazard.distance
-            )
+          .filter(
+            (hazard) =>
+              Number.isFinite(
+                hazard.distance,
+              ),
           )
-          .sort(
+          .toSorted(
             (a, b) =>
               a.distance -
-              b.distance
+              b.distance,
           );
 
-      return candidates[0] ?? null;
-    }, [hazardLayers, season]);
-
-  function changeSeason(
-    nextSeason: Season
-  ) {
-    setSeason(nextSeason);
-
-    const nextPrimary = hazardLayers
-      .filter((hazard) =>
-        seasonalHazards[
-          nextSeason
-        ].includes(hazard.type)
-      )
-      .filter((hazard) =>
-        Number.isFinite(
-          hazard.distance
-        )
-      )
-      .toSorted(
-        (a, b) =>
-          a.distance - b.distance
-      )[0];
-
-    if (nextPrimary) {
-      setVisibleHazards(
-        (previous) => ({
-          ...previous,
-          [nextPrimary.type]: true,
-        })
+      return (
+        candidates[0] ??
+        null
       );
+    }, [
+      hazardLayers,
+      season,
+    ]);
+
+  /*
+    Automatically display the
+    closest seasonal hazard.
+  */
+  useEffect(() => {
+    if (
+      !primaryHazard
+    ) {
+      return;
     }
-  }
+
+    setVisibleHazards(
+      (previous) => ({
+        ...previous,
+
+        [primaryHazard.type]:
+          true,
+      }),
+    );
+  }, [primaryHazard]);
 
   function toggleHazard(
-    type: string
+    type: string,
   ) {
     setVisibleHazards(
       (previous) => ({
         ...previous,
+
         [type]:
           !previous[type],
-      })
+      }),
     );
   }
 
   function toggleResource(
-    kind: string
+    kind: string,
   ) {
     setVisibleResources(
       (previous) => ({
         ...previous,
+
         [kind]:
           !previous[kind],
-      })
+      }),
     );
   }
 
+  /*
+    SEND HAZARD TO
+    ELEVENLABS GUARDIAN
+  */
   async function sendHazardToGuardian(
     hazard: HazardLayer,
-    feature: any
+    feature: any,
   ) {
     try {
-      setSendingHazardContext(true);
+      setSendingHazardContext(
+        true,
+      );
+
       setAgentText("");
 
-      const context = [
-        `Selected mapped hazard: ${hazard.title}.`,
-        `Hazard type: ${hazard.type}.`,
-        `GIS status: ${hazard.status}.`,
-        Number.isFinite(hazard.distance)
-          ? hazard.distance === 0
-            ? "The selected location overlaps this mapped hazard."
-            : `The mapped hazard is approximately ${Math.round(hazard.distance)} meters away.`
-          : "Distance is unavailable.",
-        `Selected season: ${season}.`,
-        `GIS feature attributes: ${JSON.stringify(feature.properties ?? {})}.`,
-        "Use this only as mapped public-data context. Do not describe it as a real-time incident or forecast.",
+      const distanceText =
+        Number.isFinite(
+          hazard.distance,
+        )
+          ? hazard.distance ===
+            0
+            ? "The selected property overlaps this mapped hazard area."
+            : `This mapped hazard is approximately ${Math.round(
+                hazard.distance,
+              )} meters from the selected property.`
+          : "Distance information is unavailable.";
+
+      const prompt = [
+        "The resident selected a hazard on the Glendale Guardian map.",
+        "",
+        `Hazard: ${hazard.title}`,
+        `Hazard type: ${hazard.type}`,
+        `GIS status: ${hazard.status}`,
+        distanceText,
+        `Seasonal view: ${season}`,
+        `Property: ${
+          locationSource ===
+          "property"
+            ? selectedProperty.address
+            : "the resident's current location"
+        }`,
+        `GIS feature attributes: ${JSON.stringify(
+          feature.properties ??
+            {},
+        )}`,
+        "",
+        "Give the resident 3 concise and practical safety or preparedness tips related to this hazard.",
+        "Use the mapped public data only as context.",
+        "Do not describe this as a real-time emergency, active incident, forecast, or site-specific engineering assessment.",
       ].join("\n");
 
-      if (conversation.status === "connected") {
-        conversation.sendContextualUpdate(context);
-        return;
-      }
+      /*
+        Start Guardian if there
+        isn't already a conversation.
+      */
+      if (
+        conversation.status !==
+        "connected"
+      ) {
+        /*
+          ElevenLabs voice/WebRTC
+          needs microphone permission.
+        */
+        const stream =
+          await navigator.mediaDevices.getUserMedia(
+            {
+              audio: true,
+            },
+          );
 
-      const tokenResponse = await fetch("/api/conversation-token");
-      const tokenBody = await tokenResponse.json();
+        stream
+          .getTracks()
+          .forEach(
+            (track) =>
+              track.stop(),
+          );
 
-      if (!tokenResponse.ok) {
-        throw new Error(
-          tokenBody.error ?? "Unable to obtain ElevenLabs conversation token."
+        const tokenResponse =
+          await fetch(
+            `${API_BASE}/conversation-token`,
+          );
+
+        const tokenBody =
+          await tokenResponse.json();
+
+        if (
+          !tokenResponse.ok
+        ) {
+          throw new Error(
+            tokenBody.error ??
+              "Unable to obtain Guardian conversation token.",
+          );
+        }
+
+        await conversation.startSession(
+          {
+            conversationToken:
+              tokenBody.token,
+
+            connectionType:
+              "webrtc",
+
+            dynamicVariables:
+              {
+                selected_hazard_type:
+                  hazard.type,
+
+                selected_hazard_title:
+                  hazard.title,
+
+                selected_hazard_status:
+                  hazard.status,
+
+                selected_hazard_distance_m:
+                  Number.isFinite(
+                    hazard.distance,
+                  )
+                    ? String(
+                        Math.round(
+                          hazard.distance,
+                        ),
+                      )
+                    : "unknown",
+
+                selected_season:
+                  season,
+
+                selected_property:
+                  selectedProperty.address,
+
+                selected_hazard_properties:
+                  JSON.stringify(
+                    feature.properties ??
+                      {},
+                  ),
+              },
+          },
         );
       }
 
-      await conversation.startSession({
-        conversationToken: tokenBody.token,
-        connectionType: "webrtc",
-        dynamicVariables: {
-          selected_hazard_type: hazard.type,
-          selected_hazard_title: hazard.title,
-          selected_hazard_status: hazard.status,
-          selected_hazard_distance_m: Number.isFinite(hazard.distance)
-            ? String(Math.round(hazard.distance))
-            : "unknown",
-          selected_season: season,
-          selected_hazard_properties: JSON.stringify(feature.properties ?? {}),
-        },
-      });
+      /*
+        IMPORTANT:
 
-      conversation.sendContextualUpdate(context);
-    } catch (error) {
-      console.error("Guardian hazard context error:", error);
-      setAgentText(
-        "Guardian is temporarily unavailable. The mapped hazard information is still visible on the map."
+        sendUserMessage prompts
+        the ElevenLabs agent to
+        actually respond.
+
+        sendContextualUpdate alone
+        would only add background
+        context.
+      */
+      conversation.sendUserMessage(
+        prompt,
       );
-    } finally {
-      setSendingHazardContext(false);
+    } catch (error) {
+      console.error(
+        "Guardian hazard advice error:",
+        error,
+      );
+
+      setAgentText(
+        "Guardian guidance is temporarily unavailable. The mapped hazard information is still available on the map.",
+      );
+
+      setSendingHazardContext(
+        false,
+      );
     }
   }
 
@@ -732,401 +1175,479 @@ function MapPage() {
     <main
       className="app-screen"
       style={{
-        background: "#f8fafc",
+        background:
+          "#f8fafc",
       }}
     >
-      <section className="map-controls">
-        <div className="map-controls-header">
-          <div>
-            <p className="eyebrow">
-              GLENDALE GUARDIAN
-            </p>
+      {/* CONTROLS */}
 
-            <h1>My Area</h1>
+      <section
+        style={{
+          padding:
+            "18px 18px 12px",
+        }}
+      >
+        <p
+          style={{
+            margin: 0,
+            fontSize: "12px",
+            fontWeight: 700,
+            letterSpacing:
+              "0.14em",
+            color: "#35786b",
+          }}
+        >
+          GLENDALE GUARDIAN
+        </p>
 
-            <p className="location-caption">
-              {locationSource ===
-              "device"
-                ? "Viewing your current location"
-                : `Viewing selected property: ${selectedProperty.address}`}
-            </p>
-            <button
-              type="button"
-              className="map-location-button"
-              onClick={useCurrentLocation}
-            >
-              Use my current location
-            </button>
-          </div>
+        <h1
+          style={{
+            margin:
+              "8px 0 14px",
+          }}
+        >
+          My Area
+        </h1>
+
+        <p>
+          {locationSource ===
+          "property"
+            ? `Viewing selected property: ${selectedProperty.address}`
+            : "Viewing your current location"}
+        </p>
+
+        <button
+          type="button"
+          onClick={
+            useCurrentLocation
+          }
+          style={{
+            padding:
+              "9px 12px",
+            borderRadius:
+              "10px",
+            border:
+              "1px solid #cbd5e1",
+            background:
+              "white",
+            cursor:
+              "pointer",
+          }}
+        >
+          Use my current
+          location
+        </button>
+
+        <div
+          style={{
+            marginTop:
+              "14px",
+          }}
+        >
+          <label
+            htmlFor="season"
+            style={{
+              marginRight:
+                "8px",
+            }}
+          >
+            Seasonal Hazard
+            View
+          </label>
+
+          <select
+            id="season"
+            value={season}
+            onChange={(
+              event,
+            ) =>
+              setSeason(
+                event.target
+                  .value as Season,
+              )
+            }
+          >
+            <option value="spring">
+              Spring
+            </option>
+
+            <option value="summer">
+              Summer
+            </option>
+
+            <option value="fall">
+              Fall
+            </option>
+
+            <option value="winter">
+              Winter
+            </option>
+          </select>
         </div>
 
-        <label
-          htmlFor="season"
-          className="control-label"
-        >
-          Seasonal Hazard View
-        </label>
-
-        <select
-          id="season"
-          value={season}
-          onChange={(event) =>
-            changeSeason(
-              event.target
-                .value as Season
-            )
-          }
-          className="season-select"
-        >
-          <option value="spring">
-            Spring
-          </option>
-          <option value="summer">
-            Summer
-          </option>
-          <option value="fall">
-            Fall
-          </option>
-          <option value="winter">
-            Winter
-          </option>
-        </select>
-
         {primaryHazard && (
-          <div className="primary-hazard-card">
+          <div
+            style={{
+              marginTop:
+                "14px",
+              padding:
+                "12px",
+              background:
+                "white",
+              borderRadius:
+                "12px",
+              border:
+                "1px solid #e2e8f0",
+            }}
+          >
             <div>
-              <p className="primary-hazard-label">
-                Closest seasonal hazard
-              </p>
-
-              <strong>
-                {
-                  hazardLabels[
-                    primaryHazard
-                      .type
-                  ]
-                }
-              </strong>
+              Closest seasonal
+              hazard
             </div>
 
-            <span
-              className={`status-badge ${
-                primaryHazard.distance ===
-                0
-                  ? "status-in-zone"
-                  : "status-nearby"
-              }`}
-            >
+            <strong>
+              {
+                hazardLabels[
+                  primaryHazard
+                    .type
+                ]
+              }
+            </strong>
+
+            <div>
               {primaryHazard.distance ===
               0
                 ? "In mapped area"
-                : `${Math.round(
-                    primaryHazard.distance
-                  )} m away`}
-            </span>
+                : `About ${Math.round(
+                    primaryHazard.distance,
+                  )} meters away`}
+            </div>
           </div>
         )}
 
-        <div className="layer-section">
-          <div className="section-heading-row">
-            <span className="section-heading">
-              Hazard layers
-            </span>
+        <h3>
+          Hazard layers
+        </h3>
 
-            <span className="section-helper">
-              {loadingHazards
-                ? "Loading GIS layers…"
-                : "Tap a shape for AI advice"}
-            </span>
-          </div>
+        <p>
+          Tap a shape for
+          Guardian guidance
+        </p>
 
-          <div className="chip-row">
-            {hazardTypes.map(
-              (type) => {
-                const styles =
-                  getHazardStyle(
-                    type
-                  );
-
-                const active =
-                  visibleHazards[
-                    type
-                  ];
-
-                const loaded =
-                  hazardLayers.some(
-                    (hazard) =>
-                      hazard.type ===
-                      type
-                  );
-
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    disabled={!loaded}
-                    onClick={() =>
-                      toggleHazard(
-                        type
-                      )
-                    }
-                    className={`filter-chip ${
-                      active
-                        ? "filter-chip-active"
-                        : ""
-                    }`}
-                    style={
-                      active
-                        ? {
-                            background:
-                              styles.fillColor,
-                            borderColor:
-                              styles.color,
-                            color:
-                              "white",
-                          }
-                        : undefined
-                    }
-                  >
-                    {active
-                      ? "✓ "
-                      : ""}
-                    {
-                      hazardLabels[
-                        type
-                      ]
-                    }
-                  </button>
+        <div
+          style={{
+            display: "flex",
+            gap: "4px",
+            overflowX:
+              "auto",
+          }}
+        >
+          {hazardTypes.map(
+            (type) => {
+              const styles =
+                getHazardStyle(
+                  type,
                 );
-              }
-            )}
-          </div>
+
+              const active =
+                visibleHazards[
+                  type
+                ];
+
+              const loaded =
+                hazardLayers.some(
+                  (hazard) =>
+                    hazard.type ===
+                    type,
+                );
+
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  disabled={
+                    !loaded
+                  }
+                  onClick={() =>
+                    toggleHazard(
+                      type,
+                    )
+                  }
+                  style={{
+                    padding:
+                      "9px 12px",
+                    border:
+                      active
+                        ? `2px solid ${styles.color}`
+                        : "1px solid #aaa",
+                    background:
+                      active
+                        ? styles.fillColor
+                        : "#fff",
+                    color:
+                      active
+                        ? "#fff"
+                        : "#111",
+                    opacity:
+                      loaded
+                        ? 1
+                        : 0.4,
+                  }}
+                >
+                  {active
+                    ? "✓ "
+                    : ""}
+
+                  {
+                    hazardLabels[
+                      type
+                    ]
+                  }
+                </button>
+              );
+            },
+          )}
         </div>
 
-        <div className="layer-section">
-          <div className="section-heading-row">
-            <span className="section-heading">
-              Nearby resources
-            </span>
+        {loadingHazards && (
+          <p>
+            Loading hazard
+            layers...
+          </p>
+        )}
 
-            <span className="section-helper">
-              {loadingResources
-                ? "Loading resources…"
-                : `${resourceMarkers.length} loaded`}
-            </span>
-          </div>
+        <h3
+          style={{
+            marginBottom:
+              "6px",
+          }}
+        >
+          Nearby resources
+        </h3>
 
-          <div className="chip-row">
-            {resourceKinds.map(
-              (kind) => {
-                const active =
-                  visibleResources[
-                    kind
-                  ];
+        <p>
+          {loadingResources
+            ? "Loading..."
+            : `${resourceMarkers.length} loaded`}
+        </p>
 
-                return (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() =>
-                      toggleResource(
-                        kind
-                      )
-                    }
-                    className={`filter-chip ${
+        <div
+          style={{
+            display: "flex",
+            gap: "2px",
+          }}
+        >
+          {resourceKinds.map(
+            (kind) => {
+              const active =
+                visibleResources[
+                  kind
+                ];
+
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() =>
+                    toggleResource(
+                      kind,
+                    )
+                  }
+                  style={{
+                    background:
                       active
-                        ? "filter-chip-active"
-                        : ""
-                    }`}
-                    style={
+                        ? resourceColors[
+                            kind
+                          ]
+                        : "white",
+
+                    color:
                       active
-                        ? {
-                            background:
-                              resourceColors[
-                                kind
-                              ],
-                            borderColor:
-                              resourceColors[
-                                kind
-                              ],
-                            color:
-                              "white",
-                          }
-                        : undefined
-                    }
-                  >
-                    {active
-                      ? "✓ "
-                      : ""}
-                    {
-                      resourceLabels[
-                        kind
-                      ]
-                    }
-                  </button>
-                );
-              }
-            )}
-          </div>
+                        ? "white"
+                        : "#111",
+
+                    padding:
+                      "9px 12px",
+
+                    border:
+                      "1px solid #64748b",
+                  }}
+                >
+                  {active
+                    ? "✓ "
+                    : ""}
+
+                  {
+                    resourceLabels[
+                      kind
+                    ]
+                  }
+                </button>
+              );
+            },
+          )}
         </div>
       </section>
 
-      <section className="map-shell">
-        <div
-          className="map-legend"
-          aria-hidden="true"
-        >
-          <span>
-            <i
-              style={{
-                background:
-                  resourceColors
-                    .fire_stations,
-              }}
-            />
-            Fire
-          </span>
+      {/* MAP */}
 
-          <span>
-            <i
-              style={{
-                background:
-                  resourceColors
-                    .police_stations,
-              }}
-            />
-            Police
-          </span>
-
-          <span>
-            <i
-              style={{
-                background:
-                  resourceColors
-                    .hospitals,
-              }}
-            />
-            Hospital
-          </span>
-        </div>
-
+      <section
+        style={{
+          position:
+            "relative",
+        }}
+      >
         <MapContainer
           center={location}
           zoom={11}
-          className="guardian-map"
+          style={{
+            height:
+              "520px",
+            width:
+              "100%",
+          }}
         >
           <RecenterMap
-            position={location}
+            position={
+              location
+            }
           />
 
           <TileLayer
             attribution="&copy; OpenStreetMap contributors"
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
+          {/* PROPERTY */}
+
           <Marker
-            position={location}
+            position={
+              location
+            }
           >
             <Popup>
               {locationSource ===
               "device"
                 ? "You are here"
-                : "Demo property"}
+                : selectedProperty.address}
             </Popup>
           </Marker>
 
+          {/* HAZARDS */}
+
           <Pane
             name="hazardPane"
-            style={{ zIndex: 400 }}
+            style={{
+              zIndex: 400,
+            }}
           >
             {hazardLayers
               .filter(
                 (hazard) =>
                   visibleHazards[
                     hazard.type
-                  ]
+                  ],
               )
-              .map((hazard) => {
-                const styles =
-                  getHazardStyle(
-                    hazard.type
+              .map(
+                (
+                  hazard,
+                ) => {
+                  const styles =
+                    getHazardStyle(
+                      hazard.type,
+                    );
+
+                  const isPrimary =
+                    hazard.type ===
+                    primaryHazard?.type;
+
+                  return (
+                    <GeoJSON
+                      key={`${hazard.type}-${season}`}
+                      data={
+                        hazard.geometry
+                      }
+                      pane="hazardPane"
+                      style={{
+                        color:
+                          styles.color,
+
+                        fillColor:
+                          styles.fillColor,
+
+                        weight:
+                          isPrimary
+                            ? 4
+                            : 2,
+
+                        opacity:
+                          0.9,
+
+                        fillOpacity:
+                          isPrimary
+                            ? 0.35
+                            : 0.17,
+                      }}
+                      onEachFeature={(
+                        feature,
+                        layer,
+                      ) => {
+                        layer.on(
+                          "click",
+                          () => {
+                            setSelectedHazard(
+                              {
+                                type:
+                                  hazard.type,
+
+                                title:
+                                  hazard.title,
+
+                                status:
+                                  hazard.status,
+
+                                distance:
+                                  hazard.distance,
+
+                                properties:
+                                  feature.properties,
+                              },
+                            );
+
+                            sendHazardToGuardian(
+                              hazard,
+                              feature,
+                            );
+                          },
+                        );
+                      }}
+                    />
                   );
-
-                const isPrimary =
-                  hazard.type ===
-                  primaryHazard?.type;
-
-                return (
-                  <GeoJSON
-                    key={`${hazard.type}-${season}`}
-                    data={
-                      hazard.geometry
-                    }
-                    pane="hazardPane"
-                    style={{
-                      color:
-                        styles.color,
-                      fillColor:
-                        styles.fillColor,
-                      weight:
-                        isPrimary
-                          ? 3
-                          : 2,
-                      opacity: 0.9,
-                      fillOpacity:
-                        isPrimary
-                          ? 0.27
-                          : 0.12,
-                    }}
-                    onEachFeature={(
-                      feature,
-                      layer
-                    ) => {
-                      layer.on(
-                        "click",
-                        () => {
-                          setSelectedHazard(
-                            {
-                              type:
-                                hazard.type,
-                              title:
-                                hazard.title,
-                              status:
-                                hazard.status,
-                              distance:
-                                hazard.distance,
-                              properties:
-                                feature.properties,
-                            }
-                          );
-
-                          sendHazardToGuardian(
-                            hazard,
-                            feature
-                          );
-                        }
-                      );
-                    }}
-                  />
-                );
-              })}
+                },
+              )}
           </Pane>
+
+          {/* RESOURCES */}
 
           <Pane
             name="resourcePane"
-            style={{ zIndex: 650 }}
+            style={{
+              zIndex: 650,
+            }}
           >
             {resourceMarkers
               .filter(
-                (resource) =>
+                (
+                  resource,
+                ) =>
                   visibleResources[
                     resource.kind
-                  ]
+                  ],
               )
               .map(
                 (
                   resource,
-                  index
+                  index,
                 ) => (
                   <CircleMarker
                     key={`${resource.kind}-${resource.name}-${index}`}
@@ -1134,155 +1655,166 @@ function MapPage() {
                       resource.position
                     }
                     pane="resourcePane"
-                    radius={10}
+                    radius={
+                      9
+                    }
                     bubblingMouseEvents={
                       false
                     }
                     pathOptions={{
                       color:
                         "#ffffff",
-                      weight: 3,
+
+                      weight:
+                        3,
+
                       fillColor:
                         resourceColors[
-                          resource.kind
+                          resource
+                            .kind
                         ] ??
                         "#475569",
-                      fillOpacity: 1,
+
+                      fillOpacity:
+                        1,
                     }}
                   >
                     <Popup>
-                      <div className="resource-popup">
-                        <span
-                          className="resource-popup-type"
-                          style={{
-                            color:
-                              resourceColors[
-                                resource
-                                  .kind
-                              ],
-                          }}
-                        >
-                          {resourceLabels[
-                            resource.kind
-                          ] ??
-                            "Resource"}
-                        </span>
+                      <strong>
+                        {
+                          resource.name
+                        }
+                      </strong>
 
-                        <strong>
+                      {resource.address && (
+                        <div>
                           {
-                            resource.name
+                            resource.address
                           }
-                        </strong>
+                        </div>
+                      )}
 
-                        {resource.address && (
-                          <span>
-                            {
-                              resource.address
-                            }
-                          </span>
-                        )}
-
-                        <span className="resource-popup-distance">
-                          About{" "}
-                          {Math.round(
-                            resource.distance
-                          )}{" "}
-                          meters away
-                        </span>
+                      <div>
+                        About{" "}
+                        {Math.round(
+                          resource.distance,
+                        )}{" "}
+                        meters away
                       </div>
                     </Popup>
                   </CircleMarker>
-                )
+                ),
               )}
           </Pane>
         </MapContainer>
       </section>
 
+      {/* GUARDIAN ADVICE */}
+
       {selectedHazard && (
         <div
-          className="advice-backdrop"
-          onClick={() => {
-            setSelectedHazard(
-              null
-            );
-            setAgentText("");
+          style={{
+            position:
+              "fixed",
+            left: "12px",
+            right: "12px",
+            bottom:
+              "82px",
+            zIndex:
+              2000,
+            background:
+              "white",
+            borderRadius:
+              "18px",
+            padding:
+              "18px",
+            boxShadow:
+              "0 10px 35px rgba(0,0,0,0.22)",
+            maxHeight:
+              "45vh",
+            overflowY:
+              "auto",
           }}
         >
-          <aside
-            className="advice-sheet"
-            onClick={(event) =>
-              event.stopPropagation()
-            }
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedHazard(
+                null,
+              );
+
+              setAgentText(
+                "",
+              );
+            }}
+            style={{
+              float:
+                "right",
+              border:
+                "none",
+              background:
+                "transparent",
+              fontSize:
+                "22px",
+              cursor:
+                "pointer",
+            }}
           >
-            <div className="sheet-handle" />
+            ×
+          </button>
 
-            <button
-              type="button"
-              className="sheet-close"
-              aria-label="Close safety guidance"
-              onClick={() => {
-                setSelectedHazard(
-                  null
-                );
-                setAgentText("");
-              }}
-            >
-              ×
-            </button>
+          <h2>
+            {
+              selectedHazard.title
+            }
+          </h2>
 
-            <div className="advice-title-row">
-              <div>
-                <p className="eyebrow">
-                  Mapped hazard
-                </p>
+          <p>
+            {selectedHazard.distance ===
+            0
+              ? "Your selected location overlaps this mapped hazard area."
+              : `This mapped hazard is about ${Math.round(
+                  selectedHazard.distance,
+                )} meters away.`}
+          </p>
 
-                <h2>
-                  {
-                    selectedHazard.title
-                  }
-                </h2>
-              </div>
-
-              <span
-                className={`status-badge ${
-                  selectedHazard.distance ===
-                  0
-                    ? "status-in-zone"
-                    : "status-nearby"
-                }`}
-              >
-                {selectedHazard.distance ===
-                0
-                  ? "In mapped area"
-                  : `${Math.round(
-                      selectedHazard.distance
-                    )} m away`}
-              </span>
-            </div>
-
-            {sendingHazardContext && (
-              <div className="advice-loading">
-                <span className="loading-dot" />
-                Sending mapped context to Guardian…
-              </div>
+          {sendingHazardContext &&
+            !agentText && (
+              <p>
+                Asking
+                Guardian for
+                safety
+                guidance...
+              </p>
             )}
 
-            <div className="advice-content">
-              <h3>Guardian guidance</h3>
+          {agentText && (
+            <>
+              <h3>
+                Guardian
+                Guidance
+              </h3>
 
-              <p>
-                {conversation.status === "connected"
-                  ? "This mapped hazard has been shared with the ElevenLabs Guardian agent."
-                  : "Connecting this mapped hazard to the ElevenLabs Guardian agent."}
+              <p
+                style={{
+                  whiteSpace:
+                    "pre-wrap",
+                  lineHeight:
+                    1.5,
+                }}
+              >
+                {agentText}
               </p>
+            </>
+          )}
 
-              {agentText && (
-                <p className="advice-note">
-                  {agentText}
-                </p>
-              )}
-            </div>
-          </aside>
+          <small>
+            Mapped hazard
+            information is
+            public-data context,
+            not a real-time
+            emergency warning.
+          </small>
         </div>
       )}
 
