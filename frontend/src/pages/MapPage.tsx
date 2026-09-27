@@ -11,7 +11,7 @@ import {
   TileLayer,
   useMap,
 } from "react-leaflet";
-
+import { Link } from "react-router-dom";
 import BottomNav from "../components/BottomNav";
 import { getHazardStyle } from "../styles/hazardStyles";
 
@@ -47,6 +47,7 @@ const defaultPropertyLocation: [
   34.184034,
   -118.2294045,
 ];
+
 
 function loadSelectedProperty() {
   try {
@@ -1199,6 +1200,22 @@ function MapPage() {
         >
           GLENDALE GUARDIAN
         </p>
+        <Link
+  to="/"
+  style={{
+    display: "inline-block",
+    marginBottom: "12px",
+    padding: "8px 12px",
+    borderRadius: "10px",
+    border: "1px solid #cbd5e1",
+    background: "white",
+    color: "#0f172a",
+    textDecoration: "none",
+    fontWeight: 600,
+  }}
+>
+  ← Back to Guardian
+</Link>
 
         <h1
           style={{
